@@ -1,0 +1,9 @@
+apply plugin: 'org.springframework.boot'
+
+// 만료 스캔과 정합성 검사. desired 1 로 고정한다 — 여러 개가 뜨면 같은 스캔이 중복 실행된다.
+dependencies {
+    implementation project(':commerce-common')
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+}
