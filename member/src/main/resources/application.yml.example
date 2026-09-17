@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: member
+  datasource:
+    url: jdbc:mysql://localhost:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8
+    username: nova
+    password: CHANGE_ME
+    hikari:
+      # MySQL 서버 기본값은 REPEATABLE READ 다. 반드시 여기서 바꾼다.
+      # 근거: "없는 행을 잠금 읽기로 확인한 뒤 INSERT" 하는 절차가 RR 에서
+      #      갭 락과 삽입 의도 락으로 교착한다 (실측 RR 4/4 데드락, RC 4/4 통과).
+      # 빠뜨려도 오류가 나지 않는다. 부하가 걸릴 때까지 아무도 모른다.
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+      maximum-pool-size: 10
+  jpa:
+    # 스키마는 docs/schema.sql 이 정본이다. Hibernate 가 테이블을 만들지 않게 한다.
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+    open-in-view: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # 죽는 것보다 느려지는 게 위험하다 — 응답이 5초씩 걸리면 톰캣 스레드가 전부 잠기고
+      # Redis 와 무관한 API 까지 멈춘다. 300ms 를 넘겼으면 캐시를 쓸 이유가 없다.
+      timeout: 300ms
+      connect-timeout: 200ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-wait: 100ms
+  security:
+    oauth2:
+      client:
+        registration:
+          kakao:
+            client-id: CHANGE_ME
+            client-secret: CHANGE_ME
+            redirect-uri: http://localhost:8080/login/oauth2/code/kakao
+            authorization-grant-type: authorization_code
+            client-authentication-method: client_secret_post
+            scope: profile_nickname
+        provider:
+          kakao:
+            authorization-uri: https://kauth.kakao.com/oauth/authorize
+            token-uri: https://kauth.kakao.com/oauth/token
+            user-info-uri: https://kapi.kakao.com/v2/user/me
+            user-name-attribute: id
+
+server:
+  port: 8080
+
+# 서명 키. openssl rand -base64 64 로 각자 만든다. 이 값이 유출되면 토큰을 위조할 수 있다.
+jwt:
+  secret: CHANGE_ME
+  access-token-validity: 30m
+  refresh-token-validity: 14d
