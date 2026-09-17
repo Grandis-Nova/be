@@ -1,7 +1,9 @@
 apply plugin: 'org.springframework.boot'
 
 dependencies {
-    implementation project(':commerce-common')
+    implementation project(':common:types')
+    implementation project(':common:web')
+    implementation project(':common:message')
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'

@@ -1,0 +1,8 @@
+// Redis 를 쓰는 모듈만 의존한다 (member · catalog · preorder).
+// worker · batch 는 쓰지 않으므로 여기에 연결하지 않는다.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':common:types')
+    api 'org.springframework.boot:spring-boot-starter-data-redis'
+}

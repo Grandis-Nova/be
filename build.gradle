@@ -10,6 +10,11 @@ allprojects {
 }
 
 subprojects {
+    // common 처럼 소스가 없는 중간 컨테이너는 건너뛴다. 붙이면 빈 jar 가 만들어진다.
+    if (!file('src').isDirectory()) {
+        return
+    }
+
     apply plugin: 'java'
     apply plugin: 'io.spring.dependency-management'
 

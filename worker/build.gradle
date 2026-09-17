@@ -3,7 +3,8 @@ apply plugin: 'org.springframework.boot'
 // SQS 메시지를 소비한다. 웹 서버를 띄우지 않는다.
 // 큐 적체(Backlog per Task)로 1~20 까지 스케일되므로, 여러 개가 동시에 떠도 되는 일만 둔다.
 dependencies {
-    implementation project(':commerce-common')
+    implementation project(':common:types')
+    implementation project(':common:message')
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs:3.2.1'

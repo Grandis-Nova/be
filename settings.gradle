@@ -1,7 +1,11 @@
 rootProject.name = 'nova'
 
-// 공통 라이브러리
-include 'commerce-common'
+// 공통 라이브러리 — 의존하는 모듈이 서로 다르다
+include 'common:types'      // 전부
+include 'common:web'        // HTTP 서비스 4개
+include 'common:message'    // preorder · order · worker
+include 'common:redis'      // member · catalog · preorder
+include 'common:security'   // HTTP 서비스 4개 — JWT 검증
 
 // HTTP 진입점 — ECS 서비스
 include 'member'      // 카카오 로그인 · JWT · 회원

@@ -1,0 +1,8 @@
+// 모든 모듈이 의존한다. spring-web · security 를 끌어오지 않는다.
+apply plugin: 'java-library'
+
+dependencies {
+    api 'jakarta.persistence:jakarta.persistence-api'
+    api 'org.springframework.data:spring-data-jpa'          // Auditing 애너테이션
+    api 'org.springframework.boot:spring-boot-starter-validation'
+}

@@ -1,0 +1,14 @@
+// JWT 검증과 인증 컨텍스트. HTTP 서비스 4개가 공유한다.
+// 발급(로그인·재발급)은 member 가 한다. 여기는 검증만 둔다.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':common:types')
+    api 'org.springframework.boot:spring-boot-starter-security'
+    api 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    implementation 'org.springframework:spring-web'
+    implementation 'org.springframework:spring-webmvc'
+}

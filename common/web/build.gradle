@@ -1,0 +1,9 @@
+// HTTP 서비스만 의존한다 (member · catalog · preorder · order).
+// worker · batch 는 이 모듈을 쓰지 않으므로 spring-web 을 끌어오지 않는다.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':common:types')
+    api 'org.springframework:spring-web'
+    implementation 'org.springframework:spring-webmvc'
+}

@@ -1,0 +1,8 @@
+// SQS 메시지 스키마. 발행자(preorder · order)와 소비자(worker)가 같은 타입을 봐야 한다.
+// 여기 있는 것이 곧 계약이다.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':common:types')
+    api 'com.fasterxml.jackson.core:jackson-annotations'
+}
