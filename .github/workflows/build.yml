@@ -1,0 +1,51 @@
+name: build
+
+on:
+  pull_request:
+    branches: [main, 'epic/**']
+  push:
+    branches: [main]
+
+# 같은 PR 에 새 커밋이 올라오면 이전 실행을 취소한다. 러너 시간을 아낀다.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 모듈 전부를 빌드한다. 어느 모듈이 깨져도 여기서 잡힌다.
+      - run: ./gradlew build --no-daemon
+
+      # 실패해도 리포트는 남긴다. 어느 테스트가 깨졌는지 보려면 이게 필요하다.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/'
+          retention-days: 7
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 히스토리 전체를 봐야 과거 커밋에 박힌 키도 잡는다
+
+      # .gitignore 는 *.yml 만 막는다. 코드에 하드코딩된 서명 키·카카오 시크릿은 못 막는다.
+      # 한 번 푸시되면 히스토리에서 지우는 게 고통스러우므로 들어가기 전에 잡는다.
+      - name: gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --verbose
