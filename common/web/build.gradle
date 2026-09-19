@@ -6,4 +6,6 @@ dependencies {
     api project(':common:types')
     api 'org.springframework:spring-web'
     implementation 'org.springframework:spring-webmvc'
+    compileOnly 'jakarta.servlet:jakarta.servlet-api'   // MdcContextFilter. 컨테이너가 런타임에 제공한다
+    implementation 'org.slf4j:slf4j-api'
 }

@@ -1,17 +1,17 @@
 apply plugin: 'org.springframework.boot'
 
+// 카카오 로그인(프론트 주도 코드 교환, D-1) · JWT 발급 · 관리자 로그인 · 회원.
+// spring-security-oauth2-client 는 쓰지 않는다. 카카오 호출은 RestClient 두 번이다.
 dependencies {
     implementation project(':common:types')
     implementation project(':common:web')
+    implementation project(':common:security')
+    implementation project(':common:redis')
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
-    runtimeOnly 'com.mysql:mysql-connector-j'
-}
-
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'  // 카카오
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis'     // 리프레시 토큰
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'io.jsonwebtoken:jjwt-impl:0.12.6'
     implementation 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    runtimeOnly 'com.mysql:mysql-connector-j'
 }
