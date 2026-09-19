@@ -33,29 +33,46 @@ spring:
         pool:
           max-active: 16
           max-wait: 100ms
-  security:
-    oauth2:
-      client:
-        registration:
-          kakao:
-            client-id: CHANGE_ME
-            client-secret: CHANGE_ME
-            redirect-uri: http://localhost:8080/login/oauth2/code/kakao
-            authorization-grant-type: authorization_code
-            client-authentication-method: client_secret_post
-            scope: profile_nickname
-        provider:
-          kakao:
-            authorization-uri: https://kauth.kakao.com/oauth/authorize
-            token-uri: https://kauth.kakao.com/oauth/token
-            user-info-uri: https://kapi.kakao.com/v2/user/me
-            user-name-attribute: id
-
 server:
   port: 8080
 
+# D-1(프론트 주도 코드 교환): 프론트가 카카오에서 받은 code 를 POST /api/v1/auth/kakao/callback 으로 보내면 우리가 카카오에 code 를 낸다.
+# spring.security.oauth2.client 는 쓰지 않는다. client-secret 은 서버에만 있다(Secrets Manager 주입).
+# allowed-redirect-uris: 프론트가 보낸 redirectUri 가 이 목록에 정확히 있어야 한다. 아무 값이나 받으면 code 가 다른 사이트로 샌다.
+kakao:
+  client-id: CHANGE_ME
+  client-secret: CHANGE_ME
+  token-uri: https://kauth.kakao.com/oauth/token
+  user-info-uri: https://kapi.kakao.com/v2/user/me
+  allowed-redirect-uris:
+    - http://localhost:3000/login/kakao/callback
+  connect-timeout: 2s
+  read-timeout: 5s
+
+# D-4: 관리자는 회원 밖 단일 계정. password-hash 는 bcrypt 만 받는다(평문이면 기동 실패).
+#   htpasswd -nBC 12 "" | tr -d ':\n'
+admin:
+  username: admin
+  password-hash: CHANGE_ME_TO_BCRYPT_HASH
+
+auth:
+  # 리프레시 쿠키. 로컬 http 에서는 false 로.
+  cookie:
+    secure: true
+  # D-2: 폐기 표식 조회가 실패했을 때 401 로 닫는 경로. 목록 밖은 열린다(통과 + 경고 + 카운터).
+  # 비우면 기본값(아래 다섯 개)이 쓰인다. 주문 모델이 확정되면 경로 이름이 바뀔 수 있다(08 D-2).
+  revocation-check:
+    fail-closed-paths:
+      - /api/v1/admin/**
+      - /api/v1/session/refresh
+      - /api/v1/orders/*/payment-attempts/**
+      - /api/v1/reservations/*/cancel
+      - /api/v1/orders/*/cancel
+
 # 서명 키. openssl rand -base64 64 로 각자 만든다. 이 값이 유출되면 토큰을 위조할 수 있다.
 jwt:
+  issuer: nova
+  # openssl rand -base64 64 → 88자. 32자 미만이거나 CHANGE_ME 로 시작하면 기동이 실패한다. 길이가 알고리즘을 정한다(≥64바이트면 HS512).
   secret: CHANGE_ME
-  access-token-validity: 30m
-  refresh-token-validity: 14d
+  access-token-validity: 1h     # D-7
+  refresh-token-validity: 14d   # 0 이나 음수는 기동 실패

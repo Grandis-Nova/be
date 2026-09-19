@@ -14,8 +14,35 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 실제 MySQL·Redis 가 필요한 통합 시험(member 25건 이상, common:security 9건)이 있다. 서비스가 없으면 그 시험들이 skip 이 아니라
+    # 실패한다(TestInfra: CI 환경변수가 있으면 assumeTrue 대신 AssertionError) — 그물이 조용히 비는 것을 막는다.
+    services:
+      mysql:
+        image: mysql:9
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      CI: "true"
     steps:
       - uses: actions/checkout@v4
+
+      # 스키마는 docs/schema.sql 이 정본(shop · external_mock 두 스키마). 시험은 nova/nova-local 로 127.0.0.1:3306 에 붙는다.
+      - name: apply schema
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot < docs/schema.sql
+          mysql -h 127.0.0.1 -uroot -proot -e "CREATE USER 'nova'@'%' IDENTIFIED BY 'nova-local'; GRANT ALL ON shop.* TO 'nova'@'%'; GRANT ALL ON external_mock.* TO 'nova'@'%';"
 
       - uses: actions/setup-java@v4
         with:
@@ -26,6 +53,21 @@ jobs:
 
       # 모듈 전부를 빌드한다. 어느 모듈이 깨져도 여기서 잡힌다.
       - run: ./gradlew build --no-daemon
+
+      # 초록과 별개로 "시험이 정말 돌았는가" 를 로그에 남긴다. skipped 가 0 이 아니면 인프라 전제가 빠진 것이다.
+      - name: test summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          tot = {'tests': 0, 'skipped': 0, 'failures': 0, 'errors': 0}; per = {}
+          for f in glob.glob('**/build/test-results/test/*.xml', recursive=True):
+              m = re.search(r'tests="(\d+)" skipped="(\d+)" failures="(\d+)" errors="(\d+)"', open(f).read())
+              if not m: continue
+              mod = f.split('/build/')[0]; per[mod] = per.get(mod, 0) + int(m.group(1))
+              for k, v in zip(tot, m.groups()): tot[k] += int(v)
+          print('TEST SUMMARY', tot, per)
+          PY
 
       # 실패해도 리포트는 남긴다. 어느 테스트가 깨졌는지 보려면 이게 필요하다.
       - uses: actions/upload-artifact@v4
