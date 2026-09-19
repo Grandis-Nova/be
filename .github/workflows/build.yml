@@ -14,8 +14,35 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 실제 MySQL·Redis 가 필요한 통합 시험(member 25건 이상, common:security 9건)이 있다. 서비스가 없으면 그 시험들이 skip 이 아니라
+    # 실패한다(TestInfra: CI 환경변수가 있으면 assumeTrue 대신 AssertionError) — 그물이 조용히 비는 것을 막는다.
+    services:
+      mysql:
+        image: mysql:9
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      CI: "true"
     steps:
       - uses: actions/checkout@v4
+
+      # 스키마는 docs/schema.sql 이 정본(shop · external_mock 두 스키마). 시험은 nova/nova-local 로 127.0.0.1:3306 에 붙는다.
+      - name: apply schema
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot < docs/schema.sql
+          mysql -h 127.0.0.1 -uroot -proot -e "CREATE USER 'nova'@'%' IDENTIFIED BY 'nova-local'; GRANT ALL ON shop.* TO 'nova'@'%'; GRANT ALL ON external_mock.* TO 'nova'@'%';"
 
       - uses: actions/setup-java@v4
         with:
