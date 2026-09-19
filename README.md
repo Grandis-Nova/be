@@ -120,8 +120,9 @@ batch    시간이 되면 깨어남.   1 로 고정돼야 함 (늘면 같은 스
 | 오픈·마감 | 모델별로 따로 설정. 마감은 당일 자정 |
 | 사용자 취소 | 포함. 배송 중부터 불가 (예약됨 → 배송 준비 중 → 배송 중 → 배송 완료) |
 | 입장 대기열 | 포함. 별도 저장소에 구현됨 |
-| 로그인 | 소셜 로그인만. 카카오 |
-| 인증 | JWT + 리프레시 토큰 (ElastiCache Redis) |
+| 로그인 | 소셜 로그인만. 카카오. 첫 로그인이 곧 가입(추가 입력 없음) |
+| 인증 | JWT. 액세스 토큰은 `X-Session-Token` 헤더, 리프레시 토큰은 httpOnly 쿠키 + 회전. 폐기 표식은 ElastiCache Redis |
+| 관리자 | 회원 테이블 밖 단일 환경변수 계정. `POST /admin/session`(username·password). 관리자 API는 `/admin/**` 전용 URL. 비밀번호는 bcrypt 해시(cost 12 이상)만 설정에 둔다 — `htpasswd -nBC 12 "" \| tr -d ':\n'` |
 | 결제 | 사전예약 후 결제 기한을 주는 방식 |
 | DB | MySQL 8.4 · 격리 수준 `READ COMMITTED` |
 | 비동기 | Outbox + SQS |
