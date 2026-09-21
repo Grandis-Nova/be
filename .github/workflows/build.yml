@@ -49,3 +49,24 @@ jobs:
           curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
             | tar -xz -C /tmp gitleaks
           /tmp/gitleaks detect --source . --redact --verbose
+
+  # 의존성 취약점 스캔. build.gradle 과 락 정보를 읽어 알려진 CVE 를 찾는다.
+  # 지금은 경고만 한다 — 차단하면 우리가 못 고치는 베이스/라이브러리 CVE 로 PR 이 막힌다.
+  # 몇 주 돌려 노이즈 양을 본 뒤에 기준을 정한다.
+  vulns:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: trivy (소스 트리)
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln              # secret 은 gitleaks 가 이미 본다
+          severity: CRITICAL,HIGH     # MEDIUM 이하까지 켜면 노이즈가 압도한다
+          ignore-unfixed: true        # 수정 버전이 없는 건 알려줘도 할 게 없다
+          format: table
+          exit-code: '0'              # 경고만. 차단은 기준이 잡힌 뒤에.
+        env:
+          # DB 를 GHCR 에서 받는다. Docker Hub 의 rate limit 을 피한다.
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
