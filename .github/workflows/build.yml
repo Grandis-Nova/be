@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: trivy (소스 트리)
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln              # secret 은 gitleaks 가 이미 본다
