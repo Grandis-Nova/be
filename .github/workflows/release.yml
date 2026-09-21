@@ -1,0 +1,152 @@
+name: release
+
+# main 에 들어간 것만 이미지가 된다. PR 은 build.yml 이 검증만 한다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: '강제로 빌드할 서비스 (쉼표 구분, 비우면 전부)'
+        required: false
+        default: ''
+
+# 같은 브랜치의 이전 릴리스는 취소하지 않는다 — 푸시된 커밋마다 이미지가 하나씩 남아야 한다.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+permissions:
+  contents: read
+  id-token: write   # OIDC 로 IAM 역할을 assume 한다
+
+jobs:
+  # 무엇이 바뀌었는지 먼저 정한다. common 모듈이 바뀌면 그걸 쓰는 서비스가 전부 딸려 온다.
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.matrix.outputs.services }}
+      any: ${{ steps.matrix.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - 'build.gradle'
+              - 'settings.gradle'
+              - 'gradle/**'
+              - 'gradlew'
+              - 'docker/Dockerfile'
+              - '.github/workflows/release.yml'
+              - 'common/types/**'
+            member:
+              - *shared
+              - 'member/**'
+              - 'common/web/**'
+              - 'common/redis/**'
+              - 'common/security/**'
+            catalog:
+              - *shared
+              - 'catalog/**'
+              - 'common/web/**'
+              - 'common/redis/**'
+              - 'common/security/**'
+            preorder:
+              - *shared
+              - 'preorder/**'
+              - 'common/web/**'
+              - 'common/redis/**'
+              - 'common/security/**'
+              - 'common/message/**'
+            order:
+              - *shared
+              - 'order/**'
+              - 'common/web/**'
+              - 'common/security/**'
+              - 'common/message/**'
+            worker:
+              - *shared
+              - 'worker/**'
+              - 'common/message/**'
+            batch:
+              - *shared
+              - 'batch/**'
+
+      - name: 매트릭스 결정
+        id: matrix
+        env:
+          CHANGED: ${{ steps.filter.outputs.changes }}
+          FORCED: ${{ inputs.services }}
+        run: |
+          if [ -n "$FORCED" ]; then
+            list=$(echo "$FORCED" | tr ',' '\n' | sed 's/ //g' | grep -v '^$' | jq -R . | jq -sc .)
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            list='["member","catalog","preorder","order","worker","batch"]'
+          else
+            # shared 는 서비스가 아니라 트리거용 앵커다. 매트릭스에서 뺀다.
+            list=$(echo "$CHANGED" | jq -c '[.[] | select(. != "shared")]')
+          fi
+          echo "services=$list" >> "$GITHUB_OUTPUT"
+          [ "$(echo "$list" | jq 'length')" -gt 0 ] && echo "any=true" >> "$GITHUB_OUTPUT" || echo "any=false" >> "$GITHUB_OUTPUT"
+          echo "빌드 대상: $list"
+
+  # 바뀐 서비스 각각을 빌드해서 ECR 로 올린다.
+  push:
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # 한 서비스가 깨져도 나머지는 올린다
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 테스트는 build.yml 이 PR 에서 이미 돌렸다. 여기선 jar 만 만든다.
+      - name: bootJar
+        run: ./gradlew :${{ matrix.service }}:bootJar --no-daemon
+
+      - name: jar 경로 확인
+        id: jar
+        run: |
+          jar=$(ls ${{ matrix.service }}/build/libs/*.jar | grep -v -- '-plain.jar$' | head -1)
+          test -n "$jar"
+          echo "path=$jar" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: build & push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPO: nova-${{ matrix.service }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker build \
+            --file docker/Dockerfile \
+            --build-arg JAR_FILE=${{ steps.jar.outputs.path }} \
+            --tag "$REGISTRY/$REPO:$SHA" \
+            --tag "$REGISTRY/$REPO:latest" \
+            .
+          docker push "$REGISTRY/$REPO:$SHA"
+          docker push "$REGISTRY/$REPO:latest"
+          echo "### $REPO" >> "$GITHUB_STEP_SUMMARY"
+          echo '`'"$REGISTRY/$REPO:$SHA"'`' >> "$GITHUB_STEP_SUMMARY"
