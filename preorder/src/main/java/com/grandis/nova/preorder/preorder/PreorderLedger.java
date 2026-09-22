@@ -9,8 +9,12 @@ import java.time.Clock;
 import java.time.Instant;
 
 /**
- * 예약 상태를 바꾸는 유일한 길. 상태 변경 · 이력 번호 증가 · 이력 INSERT 를 한 트랜잭션에서 한다.
- * 이력 없이 상태만 바뀌는 경로를 만들지 않으려고 전이를 여기로 모았다.
+ * 예약 상태를 바꾸는 유일한 길. 호출하는 쪽은 사건({@link PreorderTrigger})만 알리고,
+ * 다음 상태는 상태 머신({@link PreorderStatus#next})이 정한다.
+ *
+ * 사건 하나의 처리:
+ * 예약 행 잠금 읽기 → 상태 머신 판정 → 현재 상태 조건부 UPDATE(이력 번호 증가) → 이력 INSERT.
+ * 이 모두가 호출한 쪽의 트랜잭션 하나에서 일어난다. 이력 없이 상태만 바뀌는 경로를 만들지 않으려고 전이를 여기로 모았다.
  *
  * 스스로 트랜잭션을 열지 않는다(MANDATORY). 전이는 늘 다른 변경(작업 행 · 아웃박스)과 한 트랜잭션이어야 해서,
  * 여기서 따로 커밋되면 그 원자성이 깨진다.
@@ -20,11 +24,14 @@ import java.time.Instant;
 public class PreorderLedger {
 
     private final PreorderRepository preorders;
+    private final PreorderEventRepository events;
     private final EntityManager entityManager;
     private final Clock clock;
 
-    public PreorderLedger(PreorderRepository preorders, EntityManager entityManager, Clock clock) {
+    public PreorderLedger(PreorderRepository preorders, PreorderEventRepository events,
+                          EntityManager entityManager, Clock clock) {
         this.preorders = preorders;
+        this.events = events;
         this.entityManager = entityManager;
         this.clock = clock;
     }
@@ -43,41 +50,73 @@ public class PreorderLedger {
     }
 
     /**
-     * from → to 전이. 예약이 지금 from 이 아니면 아무것도 바꾸지 않고 false 를 돌려준다.
-     * PENDING_SYNC → PAYABLE 은 외부 등록 번호가 필요하므로 {@link #markPayable} 을 쓴다.
+     * 사건을 적용한다. 지금 상태에서 의미 없는 사건이면(중복 · 늦은 도착) 아무것도 바꾸지 않고
+     * applied = false 와 지금 상태를 돌려준다 — 같은 메시지를 두 번 받아도 결과가 같다.
+     * 외부 등록 확인은 외부 예약 번호가 필요하므로 {@link #confirmRegister} 를 쓴다.
      *
-     * @throws IllegalArgumentException 허용하지 않는 전이 — 호출하는 코드의 오류다
+     * @throws IllegalArgumentException 예약이 없다 — 호출하는 쪽이 먼저 확인한다
+     * @throws IllegalStateException    주문 쪽 취소 거절인데 그 취소가 PAYABLE 에서 시작하지 않았다
      */
-    public boolean transition(Long preorderId, PreorderStatus from, PreorderStatus to,
-                              EventActor actor, String reason) {
-        if (!from.canTransitionTo(to)) {
-            throw new IllegalArgumentException("허용하지 않는 전이: " + from + " → " + to);
-        }
-        if (from == PreorderStatus.PENDING_SYNC && to == PreorderStatus.PAYABLE) {
-            throw new IllegalArgumentException("결제 가능 반영은 markPayable 을 쓴다");
+    public PreorderTransition fire(Long preorderId, PreorderTrigger trigger, EventActor actor, String reason) {
+        if (trigger == PreorderTrigger.REGISTER_CONFIRMED) {
+            throw new IllegalArgumentException("등록 확인은 confirmRegister 를 쓴다");
         }
         PreorderEvent.requireReason(actor, reason);
-        Instant now = clock.instant();
-        if (preorders.changeStatus(preorderId, from, to, now) == 0) {
-            return false;
+        PreorderStatus from = lockStatus(preorderId);
+        PreorderStatus to = from.next(trigger).orElse(null);
+        if (to == null) {
+            return new PreorderTransition(false, from);
         }
+        if (trigger == PreorderTrigger.CANCEL_REJECTED) {
+            requireCancelStartedFromPayable(preorderId);
+        }
+        Instant now = clock.instant();
+        requireOneRow(preorders.changeStatus(preorderId, from, to, now), preorderId);
         record(preorderId, from, to, actor, reason, now);
-        return true;
+        return new PreorderTransition(true, to);
     }
 
     /**
      * 외부 등록 확인 → PAYABLE. payable_from 과 외부 예약 번호를 함께 채운다.
-     * 이미 반영됐거나 취소 중이면 false — 같은 결과 메시지를 두 번 받아도 한 번만 반영된다.
+     * 이미 반영됐거나 취소 중이면 바꾸지 않는다 — 늦게 도착한 등록 성공이 취소된 예약을 되살리지 않는다.
      */
-    public boolean markPayable(Long preorderId, String externalReference) {
-        Instant now = clock.instant();
-        int updated = preorders.markPayable(preorderId, externalReference, now,
-                PreorderStatus.PENDING_SYNC, PreorderStatus.PAYABLE);
-        if (updated == 0) {
-            return false;
+    public PreorderTransition confirmRegister(Long preorderId, String externalReference) {
+        PreorderStatus from = lockStatus(preorderId);
+        PreorderStatus to = from.next(PreorderTrigger.REGISTER_CONFIRMED).orElse(null);
+        if (to == null) {
+            return new PreorderTransition(false, from);
         }
-        record(preorderId, PreorderStatus.PENDING_SYNC, PreorderStatus.PAYABLE, EventActor.SYSTEM, null, now);
-        return true;
+        Instant now = clock.instant();
+        requireOneRow(preorders.markPayable(preorderId, externalReference, now, from, to), preorderId);
+        record(preorderId, from, to, EventActor.SYSTEM, null, now);
+        return new PreorderTransition(true, to);
+    }
+
+    private PreorderStatus lockStatus(Long preorderId) {
+        return preorders.findStatusForUpdate(preorderId)
+                .orElseThrow(() -> new IllegalArgumentException("예약이 없다: " + preorderId));
+    }
+
+    /**
+     * 취소 거절은 주문이 있을 때만 온다. 주문은 PAYABLE 이후에만 생기므로
+     * PENDING_SYNC 에서 시작한 취소가 거절되면 어딘가 잘못된 것이다 — 결제 가능하지 않던 예약을 되살리지 않는다.
+     */
+    private void requireCancelStartedFromPayable(Long preorderId) {
+        PreorderStatus cancelStartedFrom = events
+                .findFirstByPreorderIdAndToStatusOrderByEventSequenceDesc(preorderId, PreorderStatus.CANCELING)
+                .map(PreorderEvent::getFromStatus)
+                .orElse(null);
+        if (cancelStartedFrom != PreorderStatus.PAYABLE) {
+            throw new IllegalStateException(
+                    "PAYABLE 에서 시작하지 않은 취소는 거절될 수 없다: preorderId=" + preorderId + ", from=" + cancelStartedFrom);
+        }
+    }
+
+    /** 행을 잠근 채 읽은 상태를 조건으로 하므로 늘 1행이다. 0 이면 잠금 규칙이 깨진 것이다. */
+    private static void requireOneRow(int updated, Long preorderId) {
+        if (updated != 1) {
+            throw new IllegalStateException("잠근 예약의 상태가 바뀌었다: preorderId=" + preorderId);
+        }
     }
 
     private void record(Long preorderId, PreorderStatus from, PreorderStatus to,

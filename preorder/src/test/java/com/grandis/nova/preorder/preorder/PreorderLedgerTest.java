@@ -18,10 +18,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static com.grandis.nova.preorder.preorder.PreorderStatus.CANCELED;
 import static com.grandis.nova.preorder.preorder.PreorderStatus.CANCELING;
 import static com.grandis.nova.preorder.preorder.PreorderStatus.PAYABLE;
 import static com.grandis.nova.preorder.preorder.PreorderStatus.PENDING_SYNC;
+import static com.grandis.nova.preorder.preorder.PreorderTrigger.CANCEL_COMPLETED;
+import static com.grandis.nova.preorder.preorder.PreorderTrigger.CANCEL_REJECTED;
+import static com.grandis.nova.preorder.preorder.PreorderTrigger.CANCEL_REQUESTED;
+import static com.grandis.nova.preorder.preorder.PreorderTrigger.REGISTER_CONFIRMED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -63,46 +66,55 @@ class PreorderLedgerTest {
     }
 
     @Test
-    void 전이가_성공하면_이력_번호가_하나_오르고_이력이_남는다() {
+    void 사건이_적용되면_이력_번호가_하나_오르고_이력이_남는다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
 
-        boolean changed = ledger.transition(id, PENDING_SYNC, CANCELING, EventActor.USER, null);
+        PreorderTransition result = ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
 
-        assertThat(changed).isTrue();
+        assertThat(result).isEqualTo(new PreorderTransition(true, CANCELING));
         assertThat(row(id)).containsEntry("status", "CANCELING").containsEntry("event_sequence", 2L);
         assertThat(history(id)).containsExactly("1:null>PENDING_SYNC:USER", "2:PENDING_SYNC>CANCELING:USER");
     }
 
     @Test
-    void 현재_상태가_기대와_다르면_아무것도_바꾸지_않는다() {
+    void 지금_상태에서_의미_없는_사건이면_아무것도_바꾸지_않는다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
 
-        boolean changed = ledger.transition(id, PAYABLE, CANCELING, EventActor.USER, null);
+        PreorderTransition result = ledger.fire(id, CANCEL_COMPLETED, EventActor.SYSTEM, null);
 
-        assertThat(changed).isFalse();
+        assertThat(result).isEqualTo(new PreorderTransition(false, PENDING_SYNC));
         assertThat(row(id)).containsEntry("status", "PENDING_SYNC").containsEntry("event_sequence", 1L);
         assertThat(history(id)).hasSize(1);
     }
 
     @Test
-    void 허용하지_않는_전이는_호출_오류로_거부한다() {
+    void 취소를_두_번_요청해도_한_번만_반영된다() {
+        Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
+        ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
+
+        PreorderTransition again = ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
+
+        assertThat(again).isEqualTo(new PreorderTransition(false, CANCELING));
+        assertThat(history(id)).hasSize(2);
+    }
+
+    @Test
+    void 등록_확인은_전용_메서드로만_반영한다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
 
-        assertThatThrownBy(() -> ledger.transition(id, CANCELED, PAYABLE, EventActor.SYSTEM, null))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ledger.transition(id, PENDING_SYNC, PAYABLE, EventActor.SYSTEM, null))
+        assertThatThrownBy(() -> ledger.fire(id, REGISTER_CONFIRMED, EventActor.SYSTEM, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("markPayable");
+                .hasMessageContaining("confirmRegister");
         assertThat(row(id)).containsEntry("status", "PENDING_SYNC");
     }
 
     @Test
-    void 결제_가능_반영은_한_번만_되고_기한_기준_시각을_찍는다() {
+    void 등록_확인은_한_번만_되고_결제_기한_기준_시각을_찍는다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
 
-        assertThat(ledger.markPayable(id, "EXT-1")).isTrue();
+        assertThat(ledger.confirmRegister(id, "EXT-1")).isEqualTo(new PreorderTransition(true, PAYABLE));
         Object payableFrom = row(id).get("payable_from");
-        assertThat(ledger.markPayable(id, "EXT-2")).isFalse();
+        assertThat(ledger.confirmRegister(id, "EXT-2")).isEqualTo(new PreorderTransition(false, PAYABLE));
 
         assertThat(payableFrom).isNotNull();
         assertThat(row(id))
@@ -113,25 +125,41 @@ class PreorderLedgerTest {
     }
 
     @Test
-    void 취소_중인_예약에_늦게_온_등록_성공은_반영하지_않는다() {
+    void 취소_중인_예약에_늦게_온_등록_확인은_반영하지_않는다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
-        ledger.transition(id, PENDING_SYNC, CANCELING, EventActor.USER, null);
+        ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
 
-        assertThat(ledger.markPayable(id, "EXT-LATE")).isFalse();
+        assertThat(ledger.confirmRegister(id, "EXT-LATE")).isEqualTo(new PreorderTransition(false, CANCELING));
 
         assertThat(row(id)).containsEntry("status", "CANCELING").containsEntry("payable_from", null);
     }
 
     @Test
-    void 취소_거절이면_CANCELING_에서_PAYABLE_로_되돌린다() {
+    void PAYABLE_에서_시작한_취소가_거절되면_PAYABLE_로_되돌린다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
-        ledger.markPayable(id, "EXT-1");
-        ledger.transition(id, PAYABLE, CANCELING, EventActor.USER, null);
+        ledger.confirmRegister(id, "EXT-1");
+        ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
 
-        boolean reverted = ledger.transition(id, CANCELING, PAYABLE, EventActor.SYSTEM, "SHIPPING_STARTED");
+        PreorderTransition result = ledger.fire(id, CANCEL_REJECTED, EventActor.SYSTEM, "SHIPPING_STARTED");
 
-        assertThat(reverted).isTrue();
+        assertThat(result).isEqualTo(new PreorderTransition(true, PAYABLE));
         assertThat(history(id)).last().isEqualTo("4:CANCELING>PAYABLE:SYSTEM");
+    }
+
+    @Test
+    void PENDING_SYNC_에서_시작한_취소는_거절될_수_없다() {
+        Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
+        ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
+
+        assertThatThrownBy(() -> ledger.fire(id, CANCEL_REJECTED, EventActor.SYSTEM, "SHIPPING_STARTED"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(row(id)).containsEntry("status", "CANCELING");
+    }
+
+    @Test
+    void 없는_예약에는_사건을_적용할_수_없다() {
+        assertThatThrownBy(() -> ledger.fire(Long.MAX_VALUE, CANCEL_REQUESTED, EventActor.USER, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -146,8 +174,8 @@ class PreorderLedgerTest {
     @Test
     void 취소가_끝나면_활성_표식이_사라져_같은_모델을_다시_신청할_수_있다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
-        ledger.transition(id, PENDING_SYNC, CANCELING, EventActor.USER, null);
-        ledger.transition(id, CANCELING, CANCELED, EventActor.SYSTEM, null);
+        ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
+        ledger.fire(id, CANCEL_COMPLETED, EventActor.SYSTEM, null);
 
         Preorder again = ledger.accept(draft(customerId), EventActor.USER, null);
 
@@ -169,7 +197,7 @@ class PreorderLedgerTest {
     void 관리자_전이는_사유가_없으면_거부하고_상태를_바꾸지_않는다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
 
-        assertThatThrownBy(() -> ledger.transition(id, PENDING_SYNC, CANCELING, EventActor.ADMIN, " "))
+        assertThatThrownBy(() -> ledger.fire(id, CANCEL_REQUESTED, EventActor.ADMIN, " "))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(row(id)).containsEntry("status", "PENDING_SYNC");
     }
@@ -185,7 +213,7 @@ class PreorderLedgerTest {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void 트랜잭션_밖에서는_상태를_바꿀_수_없다() {
-        assertThatThrownBy(() -> ledger.transition(1L, PENDING_SYNC, CANCELING, EventActor.USER, null))
+        assertThatThrownBy(() -> ledger.fire(1L, CANCEL_REQUESTED, EventActor.USER, null))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
 
