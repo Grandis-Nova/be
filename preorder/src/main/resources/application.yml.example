@@ -21,6 +21,13 @@ spring:
         jdbc:
           time_zone: UTC
     open-in-view: false
+  http:
+    serviceclient:
+      # 캐시가 비었을 때만 부른다(CatalogReader). 타임아웃은 내부 계약(연결 300ms · 읽기 1s)을 따른다.
+      catalog:
+        base-url: http://localhost:8082
+        connect-timeout: 300ms
+        read-timeout: 1s
   data:
     redis:
       host: localhost

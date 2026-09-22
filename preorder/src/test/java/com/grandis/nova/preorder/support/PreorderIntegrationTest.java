@@ -13,6 +13,9 @@ import java.lang.annotation.Target;
  *
  * 운영 설정(application.yml)은 저장소에 없으므로(*.yml 은 커밋하지 않음) 테스트가 기대는 값을 여기서 준다.
  * 특히 격리 수준 — 빠뜨리면 MySQL 기본값 REPEATABLE READ 로 돌아 운영과 다른 잠금 동작을 검증하게 된다.
+ *
+ * 스키마는 flyway-project/migrations 를 Flyway 로 적용해 만든다. 운영 DB 에 쓰는 것과 같은 파일이라
+ * 엔티티의 ddl-auto: validate 가 실제 배포 스키마와 대조된다. Flyway 설정은 flyway-project/flyway.toml 과 맞춘다.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
@@ -20,7 +23,13 @@ import java.lang.annotation.Target;
         "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.open-in-view=false",
-        "spring.jpa.properties.hibernate.jdbc.time_zone=UTC"
+        "spring.jpa.properties.hibernate.jdbc.time_zone=UTC",
+        "spring.flyway.locations=filesystem:${nova.migrations-path}",
+        "spring.flyway.default-schema=shop",
+        "spring.flyway.schemas=shop",
+        "spring.flyway.create-schemas=false",
+        "spring.flyway.clean-disabled=true",
+        "spring.flyway.validate-migration-naming=true"
 })
 @Import(MySqlContainerConfig.class)
 public @interface PreorderIntegrationTest {

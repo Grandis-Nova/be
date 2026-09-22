@@ -7,15 +7,21 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    // 다른 서비스 내부 API 는 HTTP Interface(@HttpExchange) + RestClient 로 부른다.
+    implementation 'org.springframework.boot:spring-boot-starter-restclient'
+    implementation 'com.github.ben-manes.caffeine:caffeine'
     runtimeOnly 'com.mysql:mysql-connector-j'
 
     // DB 동작(조건부 UPDATE 영향 행 · UNIQUE 충돌 · 잠금)은 MySQL 로만 검증한다. H2 는 쓰지 않는다.
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'org.testcontainers:testcontainers-mysql'
+    // 테스트 DB 는 Flyway 마이그레이션(스키마 정본)으로 만든다. 서비스는 Flyway 를 실행하지 않으므로 테스트 의존으로만 둔다.
+    testImplementation 'org.springframework.boot:spring-boot-starter-flyway'
+    testRuntimeOnly 'org.flywaydb:flyway-mysql'
 }
 
 tasks.named('test') {
-    // 테스트 DB 는 이 파일로 만든다. 모듈 작업 디렉터리에 기대지 않고 절대 경로로 넘긴다.
-    systemProperty 'nova.schema-path', rootProject.file('docs/schema.sql').absolutePath
+    // 모듈 작업 디렉터리에 기대지 않고 절대 경로로 넘긴다.
+    systemProperty 'nova.migrations-path', rootProject.file('flyway-project/migrations').absolutePath
 }
