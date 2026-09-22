@@ -4,6 +4,7 @@ import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.common.CommonErrorCode;
 import com.grandis.nova.common.security.AuthenticatedPrincipal;
 import com.grandis.nova.common.security.InvalidTokenException;
+import com.grandis.nova.common.security.JsonAuthFailureHandlers;
 import com.grandis.nova.common.security.JwtAuthenticationFilter;
 import com.grandis.nova.common.security.JwtTokenProvider;
 import com.grandis.nova.common.security.Role;
@@ -23,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,8 +43,9 @@ import org.springframework.web.bind.annotation.RestController;
  * - POST /session/refresh (쿠키) → 200 같은 모양 + 새 쿠키. 공개 경로. Origin 허용 목록(RefreshOriginPolicy) → 회원 이름을 **먼저** 읽고(
  *   회전 뒤에 DB 가 죽으면 회전만 되고 쿠키를 못 줘 다음 시도가 재사용으로 찍힌다) → TokenService.rotate(폐기 검사 두 번 포함).
  * - GET /session → {displayName, role}. USER 면 customers 에서 이름을 읽는다.
- * - DELETE /session → 항상 204 + 두 쿠키 만료. **공개 경로**: 만료된 액세스로도 로그아웃이 되어야 한다. 액세스 헤더·회원 쿠키·관리자 쿠키
- *   중 파싱되는 것의 sid 를 전부 폐기한다. Redis 예외만 삼키고 WARN. 실패했을 때의 창은 TokenService.revoke 주석.
+ * - DELETE /session → 204 + 두 쿠키 만료. **공개 경로**: 만료된 액세스로도 로그아웃이 되어야 한다. 액세스 헤더·회원 쿠키·관리자 쿠키
+ *   중 파싱되는 것의 sid 를 전부 폐기한다. 폐기 표식·리프레시 삭제 중 하나라도 저장소 장애로 못 했으면 **503 DEPENDENCY_UNAVAILABLE(details.retryable=true)**
+ *   — 쿠키는 그래도 지워 이 브라우저는 로그아웃되지만, 서버 쪽 폐기가 안 끝난 것을 204 로 숨기지 않는다. 프론트는 액세스 헤더로 로그아웃을 다시 보낸다.
  * - POST /admin/session {username, password} → 200 {sessionToken, role: ADMIN} + 쿠키 admin_refresh_token / 401 INVALID_CREDENTIALS.
  */
 @RestController
@@ -106,7 +109,7 @@ public class AuthController {
     }
 
     @DeleteMapping("/session")
-    public ResponseEntity<Void> logout(
+    public ResponseEntity<ApiResponse<Void>> logout(
             HttpServletRequest request,
             @RequestHeader(name = JwtAuthenticationFilter.HEADER, required = false) String accessToken) {
         String userRefresh = AuthCookies.raw(request, AuthCookies.REFRESH_TOKEN);
@@ -123,18 +126,26 @@ public class AuthController {
                 log.info("logout: token ignored ({})", e.reason());
             }
         }
+        boolean incomplete = false;
         for (UUID sid : sessions) {
             try {
                 tokens.revoke(sid);
             } catch (DataAccessException e) {
-                // "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 예외만 삼킨다 — 다른 예외는 500 으로 드러나야 한다.
-                log.warn("logout incomplete, cookie cleared anyway sid={} cause={}", sid.toString().substring(0, 8), e.getClass().getSimpleName());
+                // 저장소 장애. 쿠키는 지우되 성공으로 답하지 않는다 — 폐기 안 된 토큰이 남아 있다는 사실을 클라이언트가 알아야 다시 보낸다.
+                // DataAccessException 만 여기서 받는다. 다른 예외는 500 으로 드러나야 한다.
+                incomplete = true;
+                log.warn("logout incomplete sid={} cause={}", sid.toString().substring(0, 8), e.getClass().getSimpleName());
             }
         }
-        return ResponseEntity.noContent()
+        ResponseEntity.BodyBuilder response = ResponseEntity
+                .status(incomplete ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.NO_CONTENT)
                 .header(HttpHeaders.SET_COOKIE, cookies.expiredRefresh(Role.USER).toString())
-                .header(HttpHeaders.SET_COOKIE, cookies.expiredRefresh(Role.ADMIN).toString())
-                .build();
+                .header(HttpHeaders.SET_COOKIE, cookies.expiredRefresh(Role.ADMIN).toString());
+        if (incomplete) {
+            CommonErrorCode code = CommonErrorCode.DEPENDENCY_UNAVAILABLE;
+            return response.body(ApiResponse.fail(code, code.defaultMessage(), JsonAuthFailureHandlers.RETRYABLE_DETAILS));
+        }
+        return response.build();
     }
 
     @PostMapping("/admin/session")

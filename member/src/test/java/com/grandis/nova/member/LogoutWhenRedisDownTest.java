@@ -5,6 +5,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.grandis.nova.common.security.JwtAuthenticationFilter;
@@ -31,7 +32,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 쪽 저장소와 체커를 모킹해 죽은 상태를 만든다.
+ * "DELETE /session 은 열린 경로. 표식을 못 심으면 쿠키는 지우되 503 retryable 로 알린다". Redis 쪽 저장소와 체커를 모킹해 죽은 상태를 만든다.
  * 셋 다 죽은 경우 외에 한쪽만 실패하는 두 갈래를 따로 둔다 — 그래야 "하나가 실패해도 다른 하나는 시도한다" 가 시험에 잡힌다.
  * 표식을 못 심으면 액세스는 만료까지, 리프레시를 못 지우면 이미 리프레시를 가진 쪽은 14d 까지 — 감수하는 위험 상한.
  */
@@ -49,7 +50,7 @@ import org.springframework.web.context.WebApplicationContext;
         "admin.username=admin", "admin.password-hash=$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW",
         "auth.cookie.secure=false"
 })
-@DisplayName("DELETE /session — Redis 가 죽어도 204")
+@DisplayName("DELETE /session — Redis 가 죽으면 503 retryable, 쿠키는 그래도 지운다")
 class LogoutWhenRedisDownTest {
 
     @org.springframework.test.context.DynamicPropertySource
@@ -81,36 +82,42 @@ class LogoutWhenRedisDownTest {
     }
 
     @Test
-    @DisplayName("저장소·체커가 전부 예외를 던져도 204 이고 refresh 쿠키는 만료로 내려온다")
-    void logoutIs204WhenRedisDown() throws Exception {
+    @DisplayName("저장소·체커가 전부 예외를 던지면 503 DEPENDENCY_UNAVAILABLE(details.retryable=true) 이고 refresh 쿠키는 만료로 내려온다")
+    void logoutIs503RetryableWhenRedisDown() throws Exception {
         doThrow(DOWN).when(refreshTokens).delete(any());
         doThrow(DOWN).when(revocations).revokeSession(any(), any());
         doThrow(new com.grandis.nova.common.security.RevocationCheckFailedException(DOWN)).when(checker).isRevoked(any());
 
         mvc().perform(delete("/api/v1/session").header(JwtAuthenticationFilter.HEADER, accessToken()))
-                .andExpect(status().isNoContent())
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.retryable").value(true))
                 .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
     }
 
     @Test
-    @DisplayName("리프레시 삭제만 실패: 204 이고 sid 표식은 심어졌다 (액세스는 즉시 죽는다)")
+    @DisplayName("리프레시 삭제만 실패: 503 이지만 sid 표식은 심어졌다 (액세스는 즉시 죽는다)")
     void markStillWrittenWhenDeleteFails() throws Exception {
         doThrow(DOWN).when(refreshTokens).delete(any());
 
         mvc().perform(delete("/api/v1/session").header(JwtAuthenticationFilter.HEADER, accessToken()))
-                .andExpect(status().isNoContent())
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.retryable").value(true))
                 .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
 
         verify(revocations).revokeSession(any(), any());
     }
 
     @Test
-    @DisplayName("표식 쓰기만 실패: 204 이고 리프레시 삭제는 그래도 시도됐다")
+    @DisplayName("표식 쓰기만 실패: 503 이고 리프레시 삭제는 그래도 시도됐다")
     void refreshStillDeletedWhenMarkFails() throws Exception {
         doThrow(DOWN).when(revocations).revokeSession(any(), any());
 
         mvc().perform(delete("/api/v1/session").header(JwtAuthenticationFilter.HEADER, accessToken()))
-                .andExpect(status().isNoContent())
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.retryable").value(true))
                 .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
 
         verify(refreshTokens).delete(any());
