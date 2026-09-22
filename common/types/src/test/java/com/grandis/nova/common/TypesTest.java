@@ -36,6 +36,15 @@ class TypesTest {
     }
 
     @Test
+    void 오프셋_페이지는_극단값에서도_넘치지_않는다() {
+        OffsetPage<String> huge = OffsetPage.of(List.of(), Integer.MAX_VALUE, Integer.MAX_VALUE, Long.MAX_VALUE);
+
+        assertThat(huge.totalPages()).isEqualTo(Long.MAX_VALUE / Integer.MAX_VALUE + 1);
+        assertThat(huge.hasNext()).isTrue();
+        assertThat(OffsetPage.of(List.of(), Integer.MAX_VALUE, 1, 10).hasNext()).isFalse();
+    }
+
+    @Test
     void 오프셋_페이지는_잘못된_값을_거절한다() {
         assertThatThrownBy(() -> OffsetPage.of(List.of(), -1, 20, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> OffsetPage.of(List.of(), 0, 0, 0)).isInstanceOf(IllegalArgumentException.class);

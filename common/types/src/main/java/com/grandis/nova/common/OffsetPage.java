@@ -24,12 +24,13 @@ public record OffsetPage<T>(List<T> items, int page, int size, long total) {
         return new OffsetPage<>(items, page, size, total);
     }
 
-    public int totalPages() {
-        return (int) ((total + size - 1) / size);
+    /** 올림 나눗셈을 몫과 나머지로 한다. total + size - 1 은 total 이 클 때 넘친다. */
+    public long totalPages() {
+        return total / size + (total % size == 0 ? 0 : 1);
     }
 
     public boolean hasNext() {
-        return (long) (page + 1) * size < total;
+        return ((long) page + 1) * size < total;
     }
 
     public <R> OffsetPage<R> map(Function<T, R> mapper) {
