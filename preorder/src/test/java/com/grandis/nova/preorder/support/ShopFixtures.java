@@ -88,6 +88,15 @@ public class ShopFixtures {
         return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
     }
 
+    /** worker 가 남기는 시도 기록. preorder 는 관리자 화면에서 읽기만 한다. */
+    public void syncAttempt(Long syncJobId, int attemptNumber, String result, Integer httpStatus, String errorCode) {
+        jdbcTemplate.update("""
+                INSERT INTO preorder_sync_attempts (sync_job_id, attempt_number, actor, result, http_status,
+                                                    error_code, started_at, finished_at)
+                VALUES (?, ?, 'SYSTEM', ?, ?, ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, syncJobId, attemptNumber, result, httpStatus, errorCode);
+    }
+
     /** 회차의 다음 순번 카운터. */
     public long nextQueuePosition(Long productId) {
         return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
