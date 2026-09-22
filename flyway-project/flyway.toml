@@ -1,0 +1,15 @@
+[environments.default]
+schemas = ["shop"]
+
+[flyway]
+locations = ["filesystem:migrations"]
+defaultSchema = "shop"
+# DB 생성과 권한 부여는 RDS 초기 준비 단계에서 수행한다.
+createSchemas = false
+cleanDisabled = true
+baselineOnMigrate = false
+outOfOrder = false
+validateOnMigrate = true
+validateMigrationNaming = true
+# 기본값인 future 무시도 끈다. 오래된 배포본으로 실행하면 실패해야 한다.
+ignoreMigrationPatterns = []
