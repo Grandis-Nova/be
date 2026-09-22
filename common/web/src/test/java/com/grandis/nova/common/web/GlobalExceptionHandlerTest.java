@@ -6,7 +6,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -164,6 +166,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void 인증_권한_상태는_계약의_코드로_나간다() {
+        assertThat(internal(401).error().code()).isEqualTo("UNAUTHENTICATED");
+        assertThat(internal(403).error().code()).isEqualTo("FORBIDDEN");
+        assertThat(internal(503).error().code()).isEqualTo("DEPENDENCY_UNAVAILABLE");
+        assertThat(internal(422).error().code()).isEqualTo("VALIDATION_FAILED");  // 계약에 없는 4xx
+        assertThat(internal(502).error().code()).isEqualTo("INTERNAL_ERROR");
+    }
+
+    @Test
     void 성공_봉투는_error_가_null() {
         ApiResponse<String> res = ApiResponse.ok("hello");
 
@@ -181,6 +192,18 @@ class GlobalExceptionHandlerTest {
         assertThat(body.success()).isFalse();
         assertThat(body.data()).isNull();
         return body;
+    }
+
+    /** 부모가 상태 코드만 정해 넘기는 경로(handleExceptionInternal)를 직접 태운다. */
+    private ApiResponse<?> internal(int status) {
+        ResponseEntity<Object> res = new GlobalExceptionHandler() {
+            ResponseEntity<Object> call() {
+                return handleExceptionInternal(new RuntimeException("x"), null, new HttpHeaders(),
+                        HttpStatusCode.valueOf(status), request());
+            }
+        }.call();
+        assertThat(res.getStatusCode().value()).isEqualTo(status);
+        return (ApiResponse<?>) res.getBody();
     }
 
     private static ServletWebRequest request() {

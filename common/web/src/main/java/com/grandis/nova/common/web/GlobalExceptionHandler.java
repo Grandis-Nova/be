@@ -140,10 +140,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * 상태 코드별 대표 코드. 계약에 없는 4xx(415 · 406 등)는 "요청이 잘못됐다" 로 묶되 상태 코드는 그대로 둔다.
+     * 상태 코드별 대표 코드. 계약에 코드가 있는 상태(401 · 403 · 404 · 405 · 503)는 그 코드로,
+     * 계약에 없는 4xx(415 · 406 등)는 "요청이 잘못됐다" 로 묶되 상태 코드는 그대로 둔다.
      */
     private static ErrorCode codeOf(HttpStatusCode status) {
         return switch (status.value()) {
+            case 401 -> CommonErrorCode.UNAUTHENTICATED;
+            case 403 -> CommonErrorCode.FORBIDDEN;
             case 404 -> CommonErrorCode.NOT_FOUND;
             case 405 -> CommonErrorCode.METHOD_NOT_ALLOWED;
             case 503 -> CommonErrorCode.DEPENDENCY_UNAVAILABLE;
