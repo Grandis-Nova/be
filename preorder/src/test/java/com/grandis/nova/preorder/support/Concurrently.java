@@ -60,7 +60,19 @@ public final class Concurrently {
             throws InterruptedException {
         futures.forEach(future -> future.cancel(true));
         executor.shutdownNow();
-        if (executor.awaitTermination(SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+        boolean terminated;
+        try {
+            terminated = executor.awaitTermination(SHUTDOWN_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            if (failure == null) {
+                throw e;
+            }
+            // 원래 실패를 던지므로 인터럽트는 예외로 전하지 못한다. 상태를 되살려 호출한 쪽이 알게 한다.
+            Thread.currentThread().interrupt();
+            failure.addSuppressed(e);
+            return;
+        }
+        if (terminated) {
             return;
         }
         AssertionError stuck = new AssertionError("동시 작업 스레드가 %d초 안에 멈추지 않았다".formatted(SHUTDOWN_SECONDS));
