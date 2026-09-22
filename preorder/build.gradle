@@ -8,4 +8,14 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // DB 동작(조건부 UPDATE 영향 행 · UNIQUE 충돌 · 잠금)은 MySQL 로만 검증한다. H2 는 쓰지 않는다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-mysql'
+}
+
+tasks.named('test') {
+    // 테스트 DB 는 이 파일로 만든다. 모듈 작업 디렉터리에 기대지 않고 절대 경로로 넘긴다.
+    systemProperty 'nova.schema-path', rootProject.file('docs/schema.sql').absolutePath
 }
