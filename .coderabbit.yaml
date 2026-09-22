@@ -11,7 +11,7 @@
 #   catalog   categories · products · product_variants(재고 칼럼 제외)
 #   preorder  preorders · preorder_events · preorder_campaigns · shipment_batches
 #   order     orders · order_items · order_events · cart_items · payments · payment_transactions
-#             product_variants 의 재고 칼럼(stock_on_hand · stock_reserved · stock_sold)
+#             product_variants 의 재고 칼럼(stock_total · stock_reserved · stock_sold)
 #   worker    preorder_sync_jobs · preorder_sync_attempts (실행 주체. 행 생성은 preorder)
 #   batch     읽기 전용
 #
@@ -41,6 +41,8 @@ reviews:
 
   auto_review:
     enabled: true
+    labels:
+      - "!skip-review"
     auto_incremental_review: true
     drafts: false
     # 에픽 브랜치는 커밋이 길게 쌓인다. 기본값(5)이면 중간에 리뷰가 멈춘다
@@ -146,7 +148,7 @@ reviews:
         # 경계
         - preorders · preorder_events 를 쓰기(UPDATE · INSERT)하면 지적한다.
           예약 상태를 바꾸는 주체는 preorder 다. 결제 결과는 이벤트로 알린다.
-        - product_variants 는 재고 칼럼(stock_on_hand · stock_reserved · stock_sold)만 변경할 수 있다.
+        - product_variants 는 재고 칼럼(stock_total · stock_reserved · stock_sold)만 변경할 수 있다.
           그 외 칼럼(title · price · status)을 변경하면 지적한다.
 
         # 결제
@@ -158,7 +160,7 @@ reviews:
         # 재고
         - 차감은 조건부 UPDATE 한 번으로 한다.
           예: UPDATE ... SET stock_reserved = stock_reserved + ?
-              WHERE id = ? AND stock_on_hand - stock_reserved - stock_sold >= ?
+              WHERE id = ? AND stock_total - stock_reserved - stock_sold >= ?
           영향 행 0 을 품절로 처리한다. SELECT 로 읽어 계산한 뒤 UPDATE 하면 지적한다.
         - 반환은 한 번만 일어나야 한다(stock_released_at 이 비어 있을 때만).
           중복 반환을 막는 조건이 없으면 지적한다.
@@ -216,7 +218,7 @@ reviews:
     # ─────────────────────────────────────────────────────────────
     - path: "catalog/**/*.java"
       instructions: |
-        - 재고 칼럼(stock_on_hand · stock_reserved · stock_sold)은 읽기만 허용한다. 변경하면 지적한다.
+        - 재고 칼럼(stock_total · stock_reserved · stock_sold)은 읽기만 허용한다. 변경하면 지적한다.
         - preorders · orders · payments 는 읽기도 지적한다.
         - sku 는 모델 안에서 유일하다. 중복 검사를 애플리케이션 조회로만 하면 UNIQUE 제약을 함께 쓰도록 제안한다.
         - 상품 · 옵션의 물리 삭제는 지적한다. 신청 이력이 있으므로 상태로 숨긴다.
@@ -330,7 +332,7 @@ reviews:
           다음이면 실패로 표시한다.
           - 서비스 모듈이 자기 소유가 아닌 테이블에 쓰기를 한다
           - preorder 또는 catalog 가 product_variants 의 재고 칼럼
-            (stock_on_hand · stock_reserved · stock_sold)을 변경한다
+            (stock_total · stock_reserved · stock_sold)을 변경한다
           - order 가 product_variants 의 재고 칼럼 외(title · price · status 등)를 변경한다
           - build.gradle 에 서비스 모듈끼리의 project 의존이 추가됐다
 
