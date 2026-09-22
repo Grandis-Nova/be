@@ -11,7 +11,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    implementation 'io.jsonwebtoken:jjwt-impl:0.12.6'
-    implementation 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    // JJWT 는 common:security 가 api(jjwt-api)·runtimeOnly(impl·jackson)로 들고 온다. 여기서 다시 적지 않는다 — 버전은 한 곳에서만
     runtimeOnly 'com.mysql:mysql-connector-j'
 }
