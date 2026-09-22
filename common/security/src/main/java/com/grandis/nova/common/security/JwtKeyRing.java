@@ -76,6 +76,10 @@ public class JwtKeyRing implements AutoCloseable {
         this.refresher = refresher;
         this.ownedScheduler = ownedScheduler;
         this.jwkSetUri = properties.jwkSetUri() == null || properties.jwkSetUri().isBlank() ? null : properties.jwkSetUri();
+        if (this.jwkSetUri != null && !this.jwkSetUri.startsWith("https://")) {
+            // 설정이 jwk-set-allow-http 로 명시한 예외다. 이 경로의 응답을 바꿔치기하면 토큰 위조가 되므로 VPC 안·보안 그룹 제한이 전제이고, 내부 TLS 가 붙으면 없앤다.
+            log.warn("jwks over plain http: {} — accepted only because jwt.jwk-set-allow-http=true; restrict the path with security groups and switch to https when internal TLS is available", this.jwkSetUri);
+        }
         Map<String, RSAPublicKey> keys = new LinkedHashMap<>();
         if (properties.issues()) {
             this.keyId = properties.keyId();
