@@ -3,20 +3,16 @@ package com.grandis.nova.preorder.catalog;
 import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.common.CommonErrorCode;
 import com.grandis.nova.common.web.ApiResponse;
+import com.grandis.nova.preorder.support.CatalogStubs;
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,21 +41,11 @@ class CatalogReaderTest {
         client.delayMillis = 200;
         CatalogReader reader = new CatalogReader(client);
         int requests = 20;
-        CountDownLatch start = new CountDownLatch(1);
 
-        try (ExecutorService executor = Executors.newFixedThreadPool(requests)) {
-            List<Future<Boolean>> results = new ArrayList<>();
-            for (int i = 0; i < requests; i++) {
-                results.add(executor.submit(() -> {
-                    start.await();
-                    return reader.findOption(PRODUCT_ID, OPTION_ID).isPresent();
-                }));
-            }
-            start.countDown();
-            for (Future<Boolean> result : results) {
-                assertThat(result.get(10, TimeUnit.SECONDS)).isTrue();
-            }
-        }
+        List<Outcome<Boolean>> outcomes = Concurrently.run(requests, i -> () ->
+                reader.findOption(PRODUCT_ID, OPTION_ID).isPresent());
+
+        assertThat(outcomes).allMatch(o -> o.succeeded() && o.value());
 
         assertThat(client.calls.get()).isEqualTo(1);
     }
@@ -163,9 +149,7 @@ class CatalogReaderTest {
                 throw HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", null, null, null);
             }
             sleep();
-            return ApiResponse.ok(new ProductCatalog(productId, "Nova 1", "PREORDER", "ACTIVE", List.of(
-                    new ProductCatalog.Option(OPTION_ID, "NOVA-1-BLK-256", "블랙 / 256GB",
-                            new BigDecimal("1250000"), optionStatus))));
+            return CatalogStubs.preorderProduct(productId, CatalogStubs.option(OPTION_ID, optionStatus));
         }
 
         private void sleep() {

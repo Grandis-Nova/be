@@ -1,5 +1,7 @@
 package com.grandis.nova.preorder.campaign;
 
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -10,7 +12,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -45,25 +46,12 @@ class PreorderCampaignRepositoryTest {
     void 동시에_순번을_받아도_중복과_공백이_없다() throws Exception {
         PreorderProduct product = fixtures.openPreorderProduct();
         int requests = 20;
-        CountDownLatch start = new CountDownLatch(1);
 
-        List<Long> positions = new ArrayList<>();
-        try (ExecutorService executor = Executors.newFixedThreadPool(requests)) {
-            List<Future<Long>> futures = new ArrayList<>();
-            for (int i = 0; i < requests; i++) {
-                futures.add(executor.submit(() -> {
-                    start.await();
-                    return transactionTemplate.execute(status ->
-                            campaigns.findForUpdate(product.productId()).orElseThrow().issueQueuePosition());
-                }));
-            }
-            start.countDown();
-            for (Future<Long> future : futures) {
-                positions.add(future.get(30, TimeUnit.SECONDS));
-            }
-        }
+        List<Outcome<Long>> outcomes = Concurrently.run(requests, i -> () -> transactionTemplate.execute(status ->
+                campaigns.findForUpdate(product.productId()).orElseThrow().issueQueuePosition()));
 
-        assertThat(positions).containsExactlyInAnyOrderElementsOf(
+        assertThat(outcomes).allMatch(Outcome::succeeded);
+        assertThat(outcomes.stream().map(Outcome::value).toList()).containsExactlyInAnyOrderElementsOf(
                 LongStream.rangeClosed(1, requests).boxed().toList());
         assertThat(campaigns.findById(product.productId()).orElseThrow().getNextQueuePosition())
                 .isEqualTo(requests + 1);

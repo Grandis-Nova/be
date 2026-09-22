@@ -88,6 +88,12 @@ public class ShopFixtures {
         return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
     }
 
+    /** 회차의 다음 순번 카운터. */
+    public long nextQueuePosition(Long productId) {
+        return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
+                Long.class, productId);
+    }
+
     public static String unique() {
         return UUID.randomUUID().toString();
     }

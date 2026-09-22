@@ -1,9 +1,10 @@
 package com.grandis.nova.preorder.api;
 
-import com.grandis.nova.common.web.ApiResponse;
 import com.grandis.nova.preorder.catalog.CatalogClient;
-import com.grandis.nova.preorder.catalog.ProductCatalog;
+import com.grandis.nova.preorder.preorder.PreorderLedger;
 import com.grandis.nova.preorder.support.AdmissionTickets;
+import com.grandis.nova.preorder.support.CatalogStubs;
+import com.grandis.nova.preorder.support.PreorderCancels;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -18,14 +19,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
 
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,16 +46,24 @@ class AcceptPreorderApiTest {
     @Autowired
     JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    PreorderLedger ledger;
+
+    @Autowired
+    TransactionTemplate transactionTemplate;
+
     @MockitoBean
     CatalogClient catalogClient;
 
     ShopFixtures fixtures;
+    PreorderCancels cancels;
     PreorderProduct product;
     Long customerId;
 
     @BeforeEach
     void setUp() {
         fixtures = new ShopFixtures(jdbcTemplate);
+        cancels = new PreorderCancels(ledger, transactionTemplate);
         product = fixtures.openPreorderProduct();
         customerId = fixtures.customer();
         catalogReturns(product.productId(), "PREORDER", "ACTIVE", product.optionId(), "ACTIVE");
@@ -248,11 +256,25 @@ class AcceptPreorderApiTest {
     }
 
     @Test
+    void 취소된_예약의_접수_키로_다시_보내면_새_예약이_아니라_취소된_예약을_돌려준다() throws Exception {
+        String ticket = ticket(product.productId(), customerId);
+        String canceled = body(accept(customerId, product.productId(), product.optionId(), "key-after-cancel", ticket));
+        cancels.complete(preorderIdOf(canceled));
+
+        accept(customerId, product.productId(), product.optionId(), "key-after-cancel", ticket)
+                .andExpect(status().isAccepted())
+                .andExpect(header().string("X-Idempotent-Replay", "true"))
+                .andExpect(jsonPath("$.data.preorderId").value(canceled))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+        assertThat(nextQueuePosition()).as("재신청은 새 접수 키로만 새 순번을 받는다").isEqualTo(2);
+    }
+
+    @Test
     void 이미_쓴_입장권이면_409_ADMISSION_TICKET_USED() throws Exception {
         String ticket = ticket(product.productId(), customerId);
         String first = body(accept(customerId, product.productId(), product.optionId(), "key-used-1", ticket));
         // 활성 예약 UNIQUE 를 비켜 입장권 UNIQUE 만 남긴다
-        jdbcTemplate.update("UPDATE preorders SET status = 'CANCELED' WHERE preorder_token = ?", first);
+        cancels.complete(preorderIdOf(first));
 
         accept(customerId, product.productId(), product.optionId(), "key-used-2", ticket)
                 .andExpect(status().isConflict())
@@ -352,22 +374,22 @@ class AcceptPreorderApiTest {
     }
 
     private void catalogReturns(Long productId, String saleMode, String status, Long optionId, String optionStatus) {
-        given(catalogClient.getProduct(productId)).willReturn(ApiResponse.ok(new ProductCatalog(productId, "Nova 1",
-                saleMode, status, List.of(option(optionId, optionStatus)))));
+        given(catalogClient.getProduct(productId)).willReturn(
+                CatalogStubs.product(productId, saleMode, status, CatalogStubs.option(optionId, optionStatus)));
     }
 
     private void catalogReturnsTwoOptions(Long productId, Long optionId, Long otherOptionId) {
-        given(catalogClient.getProduct(productId)).willReturn(ApiResponse.ok(new ProductCatalog(productId, "Nova 1",
-                "PREORDER", "ACTIVE", List.of(option(optionId, "ACTIVE"), option(otherOptionId, "ACTIVE")))));
+        given(catalogClient.getProduct(productId)).willReturn(CatalogStubs.preorderProduct(productId,
+                CatalogStubs.activeOption(optionId), CatalogStubs.activeOption(otherOptionId)));
     }
 
-    private static ProductCatalog.Option option(Long optionId, String status) {
-        return new ProductCatalog.Option(optionId, "SKU-" + optionId, "블랙 / 256GB", new BigDecimal("1250000"), status);
+    private Long preorderIdOf(String preorderToken) {
+        return jdbcTemplate.queryForObject("SELECT id FROM preorders WHERE preorder_token = ?",
+                Long.class, preorderToken);
     }
 
     private long nextQueuePosition() {
-        return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
-                Long.class, product.productId());
+        return fixtures.nextQueuePosition(product.productId());
     }
 
     private int count(String sql, Object... args) {
