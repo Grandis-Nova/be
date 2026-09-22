@@ -55,6 +55,13 @@ public interface PreorderRepository extends JpaRepository<Preorder, Long> {
                     @Param("now") Instant now,
                     @Param("from") PreorderStatus from, @Param("payable") PreorderStatus payable);
 
+    /** 같은 접수 키의 기존 예약(재전송 판정). */
+    Optional<Preorder> findByCustomerIdAndIdempotencyKey(Long customerId, String idempotencyKey);
+
+    /** 같은 모델의 진행 중 예약(취소 완료 제외). 활성 예약 UNIQUE 충돌 때 기존 예약을 알려 주려고 쓴다. */
+    Optional<Preorder> findFirstByCustomerIdAndProductIdAndStatusNot(Long customerId, Long productId,
+                                                                    PreorderStatus status);
+
     /**
      * 상태를 읽으며 예약 행을 잠근다. 사건을 판정하고 반영할 때까지 다른 트랜잭션이 상태를 바꾸지 못한다.
      * 잠금 순서는 예약 행 → 그 예약의 작업 행이다. 작업 행을 먼저 잠근 뒤 이걸 부르지 않는다(교착).
