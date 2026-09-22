@@ -55,6 +55,15 @@ public class CatalogReader {
         return product(productId).flatMap(product -> product.snapshot(optionId));
     }
 
+    /**
+     * 상품과 옵션 전체. 상품이 없으면 비어 있다.
+     *
+     * @throws BusinessException DEPENDENCY_UNAVAILABLE — 캐시에 없는데 catalog 가 응답하지 않을 때
+     */
+    public Optional<ProductCatalog> findProduct(Long productId) {
+        return product(productId);
+    }
+
     /** 이벤트(판매 중지 등)로 값이 바뀐 상품을 비운다. 다음 조회가 catalog 에서 다시 받는다. */
     public void evict(Long productId) {
         products.invalidate(productId);

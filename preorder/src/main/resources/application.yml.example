@@ -62,6 +62,9 @@ nova:
     rollout-ends-at: ${WAITING_TOKEN_ROLLOUT_ENDS_AT:}
   sqs:
     preorder-queue: nova-preorder
+  # 외부 예약 Mock 등록 요청의 scope(시험 실행 범위). 접수 때 request_payload 에 고정된다
+  external-mock:
+    scope: preorder
 
 # 외부 예약 Mock (별도 레포)
 external:
