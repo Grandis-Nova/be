@@ -23,10 +23,10 @@ spring:
     open-in-view: false
   http:
     serviceclient:
-      # 캐시가 비었을 때만 부른다(CatalogReader). 오래 기다리면 접수 스레드가 묶이므로 짧게 둔다.
+      # 캐시가 비었을 때만 부른다(CatalogReader). 타임아웃은 내부 계약(연결 300ms · 읽기 1s)을 따른다.
       catalog:
         base-url: http://localhost:8082
-        connect-timeout: 500ms
+        connect-timeout: 300ms
         read-timeout: 1s
   data:
     redis:

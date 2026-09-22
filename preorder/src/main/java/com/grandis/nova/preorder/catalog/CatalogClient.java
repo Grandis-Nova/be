@@ -7,7 +7,7 @@ import org.springframework.web.service.annotation.HttpExchange;
 
 /**
  * catalog 내부 API. 상품과 옵션의 읽기는 catalog 에게 묻는다 — catalog 테이블을 직접 읽지 않는다.
- * 계약: contracts/preorder-internal.md "catalog 상품 옵션 조회".
+ * 계약: contracts/preorder-internal.md 1.3.
  *
  * 접수마다 부르지 않는다. {@link CatalogReader} 가 상품 단위로 캐시한다.
  */
