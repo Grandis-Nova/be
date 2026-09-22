@@ -1,8 +1,6 @@
 package com.grandis.nova.preorder.accept;
 
 import com.grandis.nova.common.BusinessException;
-import com.grandis.nova.common.CommonErrorCode;
-import com.grandis.nova.common.web.ApiError;
 import com.grandis.nova.preorder.PreorderErrorCode;
 import com.grandis.nova.preorder.admission.AdmissionTicket;
 import com.grandis.nova.preorder.admission.AdmissionTicketVerifier;
@@ -11,10 +9,10 @@ import com.grandis.nova.preorder.catalog.ProductCatalog;
 import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.preorder.PreorderStatus;
+import com.grandis.nova.preorder.web.ValidationFailures;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -54,8 +52,7 @@ public class PreorderAcceptService {
     public AcceptResult acceptByCustomer(Long customerId, Long queryProductId, Long productId, Long optionId,
                                          String idempotencyKey, String admissionTicket) {
         if (!queryProductId.equals(productId)) {
-            throw new BusinessException(CommonErrorCode.VALIDATION_FAILED, Map.of("violations",
-                    List.of(new ApiError.Violation("productId", "쿼리의 productId 와 같아야 합니다."))));
+            throw ValidationFailures.of("productId", "쿼리의 productId 와 같아야 합니다.");
         }
         if (admissionTicket == null || admissionTicket.isBlank()) {
             throw new BusinessException(PreorderErrorCode.ADMISSION_TICKET_REQUIRED);

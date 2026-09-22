@@ -18,8 +18,8 @@ public record OptionSnapshot(
         String optionStatus
 ) {
 
-    public static final String PREORDER = "PREORDER";
-    public static final String ACTIVE = "ACTIVE";
+    static final String PREORDER = "PREORDER";
+    static final String ACTIVE = "ACTIVE";
 
     public boolean isPreorderProduct() {
         return PREORDER.equals(saleMode);

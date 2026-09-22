@@ -1,12 +1,5 @@
 package com.grandis.nova.preorder.web;
 
-import com.grandis.nova.common.BusinessException;
-import com.grandis.nova.common.CommonErrorCode;
-import com.grandis.nova.common.web.ApiError;
-
-import java.util.List;
-import java.util.Map;
-
 /**
  * Idempotency-Key 헤더 규칙(계약: 8~64자).
  *
@@ -24,8 +17,7 @@ public final class IdempotencyKeys {
 
     public static String require(String key) {
         if (key.length() < MIN_LENGTH || key.length() > MAX_LENGTH) {
-            throw new BusinessException(CommonErrorCode.VALIDATION_FAILED, Map.of("violations", List.of(
-                    new ApiError.Violation(HEADER, "%d~%d자여야 합니다.".formatted(MIN_LENGTH, MAX_LENGTH)))));
+            throw ValidationFailures.of(HEADER, "%d~%d자여야 합니다.".formatted(MIN_LENGTH, MAX_LENGTH));
         }
         return key;
     }

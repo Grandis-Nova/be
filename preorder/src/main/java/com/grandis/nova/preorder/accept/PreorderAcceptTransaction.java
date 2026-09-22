@@ -128,13 +128,15 @@ public class PreorderAcceptTransaction {
         if (!different.isEmpty()) {
             throw new BusinessException(PreorderErrorCode.KEY_PAYLOAD_MISMATCH, Map.of("fields", different));
         }
-        ShipmentBatch batch = batches.findById(existing.getShipmentBatchId()).orElseThrow();
+        ShipmentBatch batch = batches.findById(existing.getShipmentBatchId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "예약의 배송 차수가 없다: preorderId=" + existing.getId()));
         return new AcceptResult(existing, batch, true);
     }
 
     private static OptionSnapshot requireOnSale(AcceptCommand command, Optional<ProductCatalog> product) {
         ProductCatalog found = product
-                .filter(p -> OptionSnapshot.PREORDER.equals(p.saleMode()) && OptionSnapshot.ACTIVE.equals(p.status()))
+                .filter(ProductCatalog::isOnPreorderSale)
                 .orElseThrow(() -> new BusinessException(PreorderErrorCode.PRODUCT_NOT_FOUND));
         return found.snapshot(command.optionId())
                 .filter(OptionSnapshot::isOnSale)
