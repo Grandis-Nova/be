@@ -63,6 +63,9 @@ replay_pid*
 .env.*
 !.env.example
 
+# Flyway 개인 접속 설정
+flyway.user.toml
+
 ### 에이전트 도구 로컬 설정 ###
 # 개인 권한 설정이라 공유 대상이 아니다. .claude/settings.json 은 공유한다.
 .claude/settings.local.json

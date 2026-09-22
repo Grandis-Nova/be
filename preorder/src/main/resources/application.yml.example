@@ -13,7 +13,7 @@ spring:
       transaction-isolation: TRANSACTION_READ_COMMITTED
       maximum-pool-size: 10
   jpa:
-    # 스키마는 docs/schema.sql 이 정본이다. Hibernate 가 테이블을 만들지 않게 한다.
+    # 정본은 flyway-project/migrations. docs/schema.sql은 생성된 최신 구조다.
     hibernate:
       ddl-auto: validate
     properties:
