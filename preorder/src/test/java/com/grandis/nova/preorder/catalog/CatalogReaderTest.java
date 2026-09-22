@@ -6,6 +6,7 @@ import com.grandis.nova.common.web.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
 import java.math.BigDecimal;
@@ -90,6 +91,31 @@ class CatalogReaderTest {
     }
 
     @Test
+    void 캐시에_없는데_catalog_가_5xx_면_503_으로_알린다() {
+        FakeCatalogClient client = new FakeCatalogClient();
+        client.errorStatus = HttpStatus.SERVICE_UNAVAILABLE;
+
+        assertThatThrownBy(() -> new CatalogReader(client).findOption(PRODUCT_ID, OPTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
+    }
+
+    @Test
+    void 없는_상품_외의_4xx_는_재시도_안내가_아니라_연동_오류다() {
+        FakeCatalogClient client = new FakeCatalogClient();
+        client.errorStatus = HttpStatus.BAD_REQUEST;
+        CatalogReader reader = new CatalogReader(client);
+
+        assertThatThrownBy(() -> reader.findOption(PRODUCT_ID, OPTION_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(BusinessException.class);
+
+        client.errorStatus = null;
+        assertThat(reader.findOption(PRODUCT_ID, OPTION_ID)).as("실패는 캐시하지 않는다").isPresent();
+    }
+
+    @Test
     void 비우면_다음_조회에서_다시_받는다() {
         FakeCatalogClient client = new FakeCatalogClient();
         CatalogReader reader = new CatalogReader(client);
@@ -119,6 +145,7 @@ class CatalogReaderTest {
         volatile long delayMillis;
         volatile boolean notFound;
         volatile boolean unavailable;
+        volatile HttpStatus errorStatus;
         volatile String optionStatus = "ACTIVE";
 
         @Override
@@ -126,6 +153,11 @@ class CatalogReaderTest {
             calls.incrementAndGet();
             if (unavailable) {
                 throw new ResourceAccessException("connection refused");
+            }
+            if (errorStatus != null) {
+                throw errorStatus.is4xxClientError()
+                        ? HttpClientErrorException.create(errorStatus, errorStatus.getReasonPhrase(), null, null, null)
+                        : HttpServerErrorException.create(errorStatus, errorStatus.getReasonPhrase(), null, null, null);
             }
             if (notFound) {
                 throw HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", null, null, null);

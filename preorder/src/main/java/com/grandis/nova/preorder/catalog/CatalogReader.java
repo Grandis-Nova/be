@@ -60,10 +60,21 @@ public class CatalogReader {
         products.invalidate(productId);
     }
 
+    /**
+     * 실패는 둘로 가른다.
+     * - 404 외의 4xx: 다시 불러도 같은 결과인 연동 오류(계약 불일치 등)다. 사용자 잘못이 아니므로
+     *   catalog 의 상태를 그대로 돌려주지 않고 500 으로 둔다(응답 문구는 공통 처리기가 숨긴다).
+     * - 그 밖(타임아웃 · 연결 실패 · 5xx): 일시 장애라 503 으로 다시 시도를 안내한다.
+     */
     private Optional<ProductCatalog> product(Long productId) {
         try {
             return products.get(productId);
         } catch (CompletionException | RestClientException e) {
+            Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof HttpClientErrorException clientError) {
+                log.error("catalog 연동 오류 productId={} status={}", productId, clientError.getStatusCode(), e);
+                throw new IllegalStateException("catalog 연동 오류: " + clientError.getStatusCode(), e);
+            }
             log.warn("catalog 상품 조회 실패 productId={}", productId, e);
             throw new BusinessException(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
         }
