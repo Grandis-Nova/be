@@ -6,4 +6,9 @@ dependencies {
     api project(':common:types')
     api 'org.springframework:spring-web'
     implementation 'org.springframework:spring-webmvc'
+    // 서블릿 API 는 실행 환경(톰캣)이 준다. 여기서 끌어오면 버전이 두 벌이 된다.
+    compileOnly 'jakarta.servlet:jakarta.servlet-api'
+    testImplementation 'jakarta.servlet:jakarta.servlet-api'
+    // 봉투의 JSON 모양(null 필드 유지 · 시각 ISO 문자열)을 실제 직렬화로 확인한다
+    testImplementation 'org.springframework.boot:spring-boot-starter-jackson'
 }
