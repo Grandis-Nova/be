@@ -2,6 +2,7 @@ package com.grandis.nova.common;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -52,7 +53,7 @@ class TypesTest {
 
     @Test
     void 업무_예외의_details_는_복사본이고_없으면_null() {
-        Map<String, Object> details = new java.util.HashMap<>(Map.of("fields", List.of("optionId")));
+        Map<String, Object> details = new HashMap<>(Map.of("fields", List.of("optionId")));
         BusinessException e = new BusinessException(CommonErrorCode.VALIDATION_FAILED, details);
         details.put("later", "change");
 
