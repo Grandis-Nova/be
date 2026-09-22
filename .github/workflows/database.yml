@@ -1,0 +1,50 @@
+name: database
+
+on:
+  pull_request:
+    branches: [main, 'epic/**']
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 버전 검사기 테스트
+        run: python3 -m unittest discover -s flyway-project -p 'test_*.py'
+
+      - name: 버전 중복 · 기존 파일 불변성 · 신규 버전 순서 검사
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            python3 flyway-project/migrations.py check --base "$BASE_SHA"
+          else
+            python3 flyway-project/migrations.py check
+          fi
+
+      - name: MySQL 8.4 적용 · 재실행 · 최신 스키마 문서 검증
+        run: bash flyway-project/verify.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shop-schema
+          path: build/flyway/schema.sql
+          retention-days: 7
