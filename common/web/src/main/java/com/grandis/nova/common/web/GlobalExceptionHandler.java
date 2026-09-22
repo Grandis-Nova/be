@@ -45,11 +45,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
         ErrorCode code = e.errorCode();
-        // 예상된 실패다. 5xx 로 정의된 업무 코드(예: 의존 서비스 무응답)만 경고로 남긴다.
+        // 5xx 는 서버 쪽 사정이다. 던진 쪽 메시지에 내부 주소·원문이 섞일 수 있으므로(CWE-209)
+        // 로그에만 남기고 응답에는 코드의 기본 문구를 쓴다. 4xx 업무 메시지는 사용자용 문구라 그대로 쓴다.
+        String message = e.getMessage();
         if (code.status() >= 500) {
             log.warn("업무 오류 {}: {}", code.name(), e.getMessage());
+            message = code.defaultMessage();
         }
-        return ResponseEntity.status(code.status()).body(ApiResponse.fail(code, e.getMessage(), e.details()));
+        return ResponseEntity.status(code.status()).body(ApiResponse.fail(code, message, e.details()));
     }
 
     /** 서비스 계층의 @Validated 검증 위반. MVC 밖에서 나므로 부모가 모른다. */

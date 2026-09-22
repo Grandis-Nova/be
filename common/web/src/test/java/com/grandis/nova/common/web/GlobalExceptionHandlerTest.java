@@ -70,6 +70,26 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void 업무_예외가_5xx_면_던진_메시지를_숨기고_기본_문구로_응답한다() {
+        BusinessException e = new BusinessException(CommonErrorCode.DEPENDENCY_UNAVAILABLE,
+                "order 호출 타임아웃: http://order.internal:8080/internal/orders");
+
+        ResponseEntity<ApiResponse<Void>> res = handler.handleBusiness(e);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(503);
+        assertThat(res.getBody().error().message())
+                .isEqualTo(CommonErrorCode.DEPENDENCY_UNAVAILABLE.defaultMessage())
+                .doesNotContain("order.internal");
+    }
+
+    @Test
+    void 업무_예외가_4xx_면_던진_메시지를_그대로_쓴다() {
+        BusinessException e = new BusinessException(CommonErrorCode.VALIDATION_FAILED, "커서가 올바르지 않습니다.");
+
+        assertThat(handler.handleBusiness(e).getBody().error().message()).isEqualTo("커서가 올바르지 않습니다.");
+    }
+
+    @Test
     void 예상하지_못한_예외는_원문을_숨기고_500() {
         ResponseEntity<ApiResponse<Void>> res =
                 handler.handleUnexpected(new IllegalStateException("SQL 원문이 여기 있다"));
