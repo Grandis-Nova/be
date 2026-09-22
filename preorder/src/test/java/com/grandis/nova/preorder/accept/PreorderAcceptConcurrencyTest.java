@@ -2,14 +2,14 @@ package com.grandis.nova.preorder.accept;
 
 import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.common.ErrorCode;
-import com.grandis.nova.common.web.ApiResponse;
 import com.grandis.nova.preorder.PreorderErrorCode;
 import com.grandis.nova.preorder.catalog.CatalogClient;
-import com.grandis.nova.preorder.catalog.ProductCatalog;
 import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.PreorderLedger;
 import com.grandis.nova.preorder.preorder.PreorderTrigger;
 import com.grandis.nova.preorder.support.AdmissionTickets;
+import com.grandis.nova.preorder.support.CatalogStubs;
+import com.grandis.nova.preorder.support.Concurrently;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -21,17 +21,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.function.IntFunction;
 import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,9 +64,8 @@ class PreorderAcceptConcurrencyTest {
         fixtures = new ShopFixtures(jdbcTemplate);
         product = fixtures.openPreorderProduct();
         otherOptionId = fixtures.option(product.productId(), "ACTIVE");
-        given(catalogClient.getProduct(product.productId())).willReturn(ApiResponse.ok(new ProductCatalog(
-                product.productId(), "Nova 1", "PREORDER", "ACTIVE", List.of(
-                        option(product.optionId()), option(otherOptionId)))));
+        given(catalogClient.getProduct(product.productId())).willReturn(CatalogStubs.preorderProduct(
+                product.productId(), CatalogStubs.activeOption(product.optionId()), CatalogStubs.activeOption(otherOptionId)));
     }
 
     @RepeatedTest(3)
@@ -117,8 +110,8 @@ class PreorderAcceptConcurrencyTest {
         // 롤백 뒤 다시 확인해 422 가 된다. 차례로 들어오면 재전송 확인이 먼저 422 로 막는다 — 어느 쪽이든 결과가 같아야 한다.
         // 충돌 분기 자체는 PreorderAcceptServiceTest 가 충돌을 직접 만들어 확인한다.
         PreorderProduct other = fixtures.openPreorderProduct();
-        given(catalogClient.getProduct(other.productId())).willReturn(ApiResponse.ok(new ProductCatalog(
-                other.productId(), "Nova 2", "PREORDER", "ACTIVE", List.of(option(other.optionId())))));
+        given(catalogClient.getProduct(other.productId())).willReturn(
+                CatalogStubs.preorderProduct(other.productId(), CatalogStubs.activeOption(other.optionId())));
         Long customerId = fixtures.customer();
         List<PreorderProduct> targets = List.of(product, other);
 
@@ -221,32 +214,10 @@ class PreorderAcceptConcurrencyTest {
                 product.optionId(), key, AdmissionTickets.issue(product.productId(), customerId, Instant.now()));
     }
 
-    /** 요청을 한꺼번에 출발시키고 결과(성공 · 업무 오류)를 모은다. 그 밖의 예외는 테스트 실패다. */
-    private static List<Outcome> concurrently(int requests, CallFactory factory) throws Exception {
-        CountDownLatch start = new CountDownLatch(1);
-        List<Outcome> outcomes = new ArrayList<>();
-        try (ExecutorService executor = Executors.newFixedThreadPool(requests)) {
-            List<Future<AcceptResult>> futures = new ArrayList<>();
-            for (int i = 0; i < requests; i++) {
-                Callable<AcceptResult> call = factory.create(i);
-                futures.add(executor.submit(() -> {
-                    start.await();
-                    return call.call();
-                }));
-            }
-            start.countDown();
-            for (Future<AcceptResult> future : futures) {
-                try {
-                    outcomes.add(Outcome.accepted(future.get(60, TimeUnit.SECONDS)));
-                } catch (ExecutionException e) {
-                    if (!(e.getCause() instanceof BusinessException business)) {
-                        throw e;
-                    }
-                    outcomes.add(Outcome.rejected(business.errorCode()));
-                }
-            }
-        }
-        return outcomes;
+    /** 요청을 한꺼번에 출발시키고 결과를 모은다. 업무 오류(BusinessException) 외의 예외는 테스트 실패다. */
+    private static List<Outcome> concurrently(int requests, IntFunction<Callable<AcceptResult>> tasks)
+            throws InterruptedException {
+        return Concurrently.run(requests, tasks).stream().map(Outcome::of).toList();
     }
 
     private List<Long> committedPositions() {
@@ -256,27 +227,19 @@ class PreorderAcceptConcurrencyTest {
     }
 
     private long nextQueuePosition() {
-        return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
-                Long.class, product.productId());
-    }
-
-    private static ProductCatalog.Option option(Long optionId) {
-        return new ProductCatalog.Option(optionId, "SKU-" + optionId, "블랙 / 256GB", new BigDecimal("1250000"), "ACTIVE");
-    }
-
-    @FunctionalInterface
-    interface CallFactory {
-        Callable<AcceptResult> create(int index);
+        return fixtures.nextQueuePosition(product.productId());
     }
 
     record Outcome(AcceptResult result, ErrorCode error) {
 
-        static Outcome accepted(AcceptResult result) {
-            return new Outcome(result, null);
-        }
-
-        static Outcome rejected(ErrorCode error) {
-            return new Outcome(null, error);
+        static Outcome of(Concurrently.Outcome<AcceptResult> outcome) {
+            if (outcome.succeeded()) {
+                return new Outcome(outcome.value(), null);
+            }
+            if (outcome.error() instanceof BusinessException business) {
+                return new Outcome(null, business.errorCode());
+            }
+            throw new AssertionError("업무 오류가 아닌 예외", outcome.error());
         }
 
         boolean accepted() {

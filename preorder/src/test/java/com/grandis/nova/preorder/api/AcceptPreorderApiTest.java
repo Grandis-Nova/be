@@ -1,9 +1,8 @@
 package com.grandis.nova.preorder.api;
 
-import com.grandis.nova.common.web.ApiResponse;
 import com.grandis.nova.preorder.catalog.CatalogClient;
-import com.grandis.nova.preorder.catalog.ProductCatalog;
 import com.grandis.nova.preorder.support.AdmissionTickets;
+import com.grandis.nova.preorder.support.CatalogStubs;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -20,12 +19,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.client.HttpClientErrorException;
 
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -352,22 +349,17 @@ class AcceptPreorderApiTest {
     }
 
     private void catalogReturns(Long productId, String saleMode, String status, Long optionId, String optionStatus) {
-        given(catalogClient.getProduct(productId)).willReturn(ApiResponse.ok(new ProductCatalog(productId, "Nova 1",
-                saleMode, status, List.of(option(optionId, optionStatus)))));
+        given(catalogClient.getProduct(productId)).willReturn(
+                CatalogStubs.product(productId, saleMode, status, CatalogStubs.option(optionId, optionStatus)));
     }
 
     private void catalogReturnsTwoOptions(Long productId, Long optionId, Long otherOptionId) {
-        given(catalogClient.getProduct(productId)).willReturn(ApiResponse.ok(new ProductCatalog(productId, "Nova 1",
-                "PREORDER", "ACTIVE", List.of(option(optionId, "ACTIVE"), option(otherOptionId, "ACTIVE")))));
-    }
-
-    private static ProductCatalog.Option option(Long optionId, String status) {
-        return new ProductCatalog.Option(optionId, "SKU-" + optionId, "블랙 / 256GB", new BigDecimal("1250000"), status);
+        given(catalogClient.getProduct(productId)).willReturn(CatalogStubs.preorderProduct(productId,
+                CatalogStubs.activeOption(optionId), CatalogStubs.activeOption(otherOptionId)));
     }
 
     private long nextQueuePosition() {
-        return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
-                Long.class, product.productId());
+        return fixtures.nextQueuePosition(product.productId());
     }
 
     private int count(String sql, Object... args) {

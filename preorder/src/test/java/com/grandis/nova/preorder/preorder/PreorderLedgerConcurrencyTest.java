@@ -1,5 +1,7 @@
 package com.grandis.nova.preorder.preorder;
 
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -10,14 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,36 +40,16 @@ class PreorderLedgerConcurrencyTest {
         PreorderProduct product = fixtures.openPreorderProduct();
         Long customerId = fixtures.customer();
         int requests = 5;
-        CountDownLatch start = new CountDownLatch(1);
 
-        int committed = 0;
-        int rejected = 0;
-        try (ExecutorService executor = Executors.newFixedThreadPool(requests)) {
-            List<Future<Long>> results = new ArrayList<>();
-            for (int i = 0; i < requests; i++) {
-                long position = i + 1;
-                results.add(executor.submit(() -> {
-                    start.await();
-                    return transactionTemplate.execute(status ->
-                            ledger.accept(draft(product, customerId, position), EventActor.USER, null).getId());
-                }));
-            }
-            start.countDown();
-            for (Future<Long> result : results) {
-                try {
-                    result.get(30, TimeUnit.SECONDS);
-                    committed++;
-                } catch (ExecutionException e) {
-                    assertThat(e.getCause())
-                            .isInstanceOf(DataIntegrityViolationException.class)
-                            .hasMessageContaining("uq_preorder_active");
-                    rejected++;
-                }
-            }
-        }
+        List<Outcome<Long>> outcomes = Concurrently.run(requests, i -> () -> transactionTemplate.execute(status ->
+                ledger.accept(draft(product, customerId, i + 1), EventActor.USER, null).getId()));
 
-        assertThat(committed).isEqualTo(1);
-        assertThat(rejected).isEqualTo(requests - 1);
+        assertThat(outcomes.stream().filter(Outcome::succeeded)).hasSize(1);
+        assertThat(outcomes.stream().filter(o -> !o.succeeded()))
+                .hasSize(requests - 1)
+                .allSatisfy(o -> assertThat(o.error())
+                        .isInstanceOf(DataIntegrityViolationException.class)
+                        .hasMessageContaining("uq_preorder_active"));
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM preorders WHERE customer_id = ? AND product_id = ? AND active_marker = 1
                 """, Integer.class, customerId, product.productId())).isEqualTo(1);
