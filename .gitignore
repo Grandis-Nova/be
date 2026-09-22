@@ -66,3 +66,11 @@ replay_pid*
 ### 에이전트 도구 로컬 설정 ###
 # 개인 권한 설정이라 공유 대상이 아니다. .claude/settings.json 은 공유한다.
 .claude/settings.local.json
+
+### CI 가 잡 사이로 jar 를 넘길 때 쓰는 임시 경로 ###
+dist/
+
+### 파이썬 바이트코드 ###
+# CI 스크립트를 로컬에서 돌리면 생긴다.
+__pycache__/
+*.pyc

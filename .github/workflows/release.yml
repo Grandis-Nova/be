@@ -24,85 +24,75 @@ permissions:
   id-token: write   # OIDC 로 IAM 역할을 assume 한다
 
 jobs:
-  # 무엇이 바뀌었는지 먼저 정한다. common 모듈이 바뀌면 그걸 쓰는 서비스가 전부 딸려 온다.
+  # ── 1단계: 무엇을 다시 빌드할지 정한다 ────────────────────────────────
+  # 의존 관계를 여기 적지 않는다. build.gradle 에서 그래프를 뽑아 쓴다.
+  # 모듈을 추가하거나 의존을 바꿔도 이 워크플로는 그대로다.
   detect:
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.matrix.outputs.services }}
-      any: ${{ steps.matrix.outputs.any }}
+      services: ${{ steps.pick.outputs.services }}
+      any: ${{ steps.pick.outputs.any }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            shared: &shared
-              - 'build.gradle'
-              - 'settings.gradle'
-              - 'gradle/**'
-              - 'gradlew'
-              - 'docker/Dockerfile'
-              - '.github/workflows/release.yml'
-              - 'common/types/**'
-            member:
-              - *shared
-              - 'member/**'
-              - 'common/web/**'
-              - 'common/redis/**'
-              - 'common/security/**'
-            catalog:
-              - *shared
-              - 'catalog/**'
-              - 'common/web/**'
-              - 'common/redis/**'
-              - 'common/security/**'
-            preorder:
-              - *shared
-              - 'preorder/**'
-              - 'common/web/**'
-              - 'common/redis/**'
-              - 'common/security/**'
-              - 'common/message/**'
-            order:
-              - *shared
-              - 'order/**'
-              - 'common/web/**'
-              - 'common/security/**'
-              - 'common/message/**'
-            worker:
-              - *shared
-              - 'worker/**'
-              - 'common/message/**'
-            batch:
-              - *shared
-              - 'batch/**'
+          fetch-depth: 0   # 이전 커밋과 비교해야 한다
 
-      - name: 매트릭스 결정
-        id: matrix
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 의존 그래프 추출
+        run: ./gradlew serviceGraph -q --no-daemon > /dev/null
+
+      - name: 변경 파일 → 서비스
+        id: pick
         env:
-          CHANGED: ${{ steps.filter.outputs.changes }}
           FORCED: ${{ inputs.services }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          if [ -n "$FORCED" ]; then
-            list=$(echo "$FORCED" | tr ',' '\n' | sed 's/ //g' | grep -v '^$' | jq -R . | jq -sc .)
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            list='["member","catalog","preorder","order","worker","batch"]'
-          else
-            # shared 는 서비스가 아니라 트리거용 앵커다. 매트릭스에서 뺀다.
-            list=$(echo "$CHANGED" | jq -c '[.[] | select(. != "shared")]')
-          fi
-          echo "services=$list" >> "$GITHUB_OUTPUT"
-          [ "$(echo "$list" | jq 'length')" -gt 0 ] && echo "any=true" >> "$GITHUB_OUTPUT" || echo "any=false" >> "$GITHUB_OUTPUT"
-          echo "빌드 대상: $list"
+          set -euo pipefail
 
-  # 바뀐 서비스 각각을 빌드해서 ECR 로 올린다.
-  push:
+          if [ -n "$FORCED" ]; then
+            list=$(echo "$FORCED" | tr ',' '\n' | tr -d ' ' | grep -v '^$' | jq -R . | jq -sc .)
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            list=$(jq -c '.services | keys' build/service-graph.json)
+          else
+            # 비교 기준이 없거나(첫 푸시) 강제 푸시로 유효하지 않으면 전부 빌드한다.
+            # 애매할 때 많이 빌드하는 쪽이 누락보다 안전하다.
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              echo "::notice::비교 기준을 찾을 수 없다. 전체를 빌드한다."
+              list=$(jq -c '.services | keys' build/service-graph.json)
+            else
+              git diff --name-only "$BEFORE" "${{ github.sha }}" > changed.txt
+              list=$(python3 .github/scripts/affected.py build/service-graph.json changed.txt)
+            fi
+          fi
+
+          echo "services=$list" >> "$GITHUB_OUTPUT"
+          [ "$(echo "$list" | jq 'length')" -gt 0 ] \
+            && echo "any=true" >> "$GITHUB_OUTPUT" \
+            || echo "any=false" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 빌드 대상"
+            echo '```'
+            echo "$list" | jq -r '.[]' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 2단계: jar 를 만든다 ──────────────────────────────────────────────
+  # 여기서 빨간불이면 코드 문제다.
+  # 테스트는 PR 에서 build.yml 이 이미 돌렸다.
+  package:
     needs: detect
     if: needs.detect.outputs.any == 'true'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false   # 한 서비스가 깨져도 나머지는 올린다
+      fail-fast: false
       matrix:
         service: ${{ fromJSON(needs.detect.outputs.services) }}
     steps:
@@ -115,16 +105,78 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 테스트는 build.yml 이 PR 에서 이미 돌렸다. 여기선 jar 만 만든다.
-      - name: bootJar
-        run: ./gradlew :${{ matrix.service }}:bootJar --no-daemon
+      - run: ./gradlew :${{ matrix.service }}:bootJar --no-daemon
 
-      - name: jar 경로 확인
-        id: jar
+      - name: jar 추려내기
         run: |
+          set -euo pipefail
           jar=$(ls ${{ matrix.service }}/build/libs/*.jar | grep -v -- '-plain.jar$' | head -1)
           test -n "$jar"
-          echo "path=$jar" >> "$GITHUB_OUTPUT"
+          mkdir -p dist && cp "$jar" dist/app.jar
+
+      # 뒤 단계들이 같은 jar 를 쓰도록 넘긴다. gradle 을 다시 돌리지 않는다.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jar-${{ matrix.service }}
+          path: dist/app.jar
+          retention-days: 1
+
+  # ── 3단계: 취약점을 본다 ─────────────────────────────────────────────
+  # 여기서 빨간불이면 보안 문제다. 지금은 경고만 하므로 빨간불이 뜨지 않는다.
+  scan:
+    needs: [detect, package]
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: jar-${{ matrix.service }}
+          path: dist
+
+      - name: 이미지 만들기
+        run: |
+          docker build --file docker/Dockerfile \
+            --build-arg JAR_FILE=dist/app.jar \
+            --tag scan-target:${{ matrix.service }} .
+
+      # 베이스 이미지의 OS 패키지와 안에 든 jar 를 함께 훑는다.
+      # ECR 의 scanOnPush 는 올라간 뒤에 보므로, 막을 수 있는 건 여기뿐이다.
+      - name: trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: scan-target:${{ matrix.service }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: table
+          exit-code: '0'   # 경고만. 차단은 기준이 잡힌 뒤에.
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
+
+  # ── 4단계: ECR 로 올린다 ─────────────────────────────────────────────
+  # 여기서 빨간불이면 권한·네트워크 문제다. 코드와 무관하다.
+  publish:
+    needs: [detect, package, scan]
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: jar-${{ matrix.service }}
+          path: dist
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -134,43 +186,17 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
 
-      - name: docker build
-        id: img
+      - name: build & push
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           REPO: nova-${{ matrix.service }}
           SHA: ${{ github.sha }}
         run: |
-          docker build \
-            --file docker/Dockerfile \
-            --build-arg JAR_FILE=${{ steps.jar.outputs.path }} \
+          set -euo pipefail
+          docker build --file docker/Dockerfile \
+            --build-arg JAR_FILE=dist/app.jar \
             --tag "$REGISTRY/$REPO:$SHA" \
-            --tag "$REGISTRY/$REPO:latest" \
-            .
-          echo "ref=$REGISTRY/$REPO:$SHA" >> "$GITHUB_OUTPUT"
-
-      # 푸시 전에 이미지를 본다. 베이스 이미지의 OS 패키지와 안에 든 jar 를 함께 훑는다.
-      # ECR 의 scanOnPush 는 올라간 뒤에 보므로, 막을 수 있는 건 여기뿐이다.
-      # 지금은 경고만 한다 — 기준 없이 차단하면 릴리스가 첫날부터 멈춘다.
-      - name: trivy (이미지)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: ${{ steps.img.outputs.ref }}
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          format: table
-          exit-code: '0'
-        env:
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2
-
-      - name: docker push
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          REPO: nova-${{ matrix.service }}
-          SHA: ${{ github.sha }}
-        run: |
+            --tag "$REGISTRY/$REPO:latest" .
           docker push "$REGISTRY/$REPO:$SHA"
           docker push "$REGISTRY/$REPO:latest"
           echo "### $REPO" >> "$GITHUB_STEP_SUMMARY"
