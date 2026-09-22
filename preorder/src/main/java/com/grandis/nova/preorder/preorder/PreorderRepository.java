@@ -1,6 +1,7 @@
 package com.grandis.nova.preorder.preorder;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,7 +17,10 @@ import java.util.Optional;
  * 벌크 UPDATE 는 영속성 컨텍스트를 거치지 않으므로 앞뒤로 flush · clear 한다. 그러지 않으면
  * 같은 트랜잭션에서 이미 읽어 둔 엔티티가 옛 상태를 들고 있다.
  */
-public interface PreorderRepository extends JpaRepository<Preorder, Long> {
+public interface PreorderRepository extends JpaRepository<Preorder, Long>, JpaSpecificationExecutor<Preorder> {
+
+    /** 공개 UUID 로 찾는다. 조회 API 는 이 값만 받는다 — 내부 id 는 밖에 알리지 않는다. */
+    Optional<Preorder> findByPreorderToken(String preorderToken);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
