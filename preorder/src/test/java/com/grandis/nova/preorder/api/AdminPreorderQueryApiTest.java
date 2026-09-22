@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -87,6 +88,17 @@ class AdminPreorderQueryApiTest {
                 .andExpect(jsonPath("$.data.items", hasSize(1)))
                 .andExpect(jsonPath("$.data.items[0].preorderId").value(AcceptFixtures.tokenOf(deadLettered)))
                 .andExpect(jsonPath("$.data.items[0].registerJobStatus").value("DEAD_LETTER"));
+    }
+
+    @Test
+    void 조건이_하나도_없어도_조회된다() throws Exception {
+        // 이 테스트만의 데이터가 아니라 스키마 전체를 보므로 건수 대신 "걸러지지 않고 나온다" 를 본다.
+        accepts.accept(customerId);
+
+        mockMvc.perform(get("/api/v1/admin/preorders").with(user("admin").roles("ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total", greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.data.items[0].preorderId").exists());
     }
 
     @Test
