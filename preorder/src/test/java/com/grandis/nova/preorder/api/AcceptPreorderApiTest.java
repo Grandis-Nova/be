@@ -245,6 +245,20 @@ class AcceptPreorderApiTest {
     }
 
     @Test
+    void 취소된_예약의_접수_키로_다시_보내면_새_예약이_아니라_취소된_예약을_돌려준다() throws Exception {
+        String ticket = ticket(product.productId(), customerId);
+        String canceled = body(accept(customerId, product.productId(), product.optionId(), "key-after-cancel", ticket));
+        jdbcTemplate.update("UPDATE preorders SET status = 'CANCELED' WHERE preorder_token = ?", canceled);
+
+        accept(customerId, product.productId(), product.optionId(), "key-after-cancel", ticket)
+                .andExpect(status().isAccepted())
+                .andExpect(header().string("X-Idempotent-Replay", "true"))
+                .andExpect(jsonPath("$.data.preorderId").value(canceled))
+                .andExpect(jsonPath("$.data.status").value("CANCELED"));
+        assertThat(nextQueuePosition()).as("재신청은 새 접수 키로만 새 순번을 받는다").isEqualTo(2);
+    }
+
+    @Test
     void 이미_쓴_입장권이면_409_ADMISSION_TICKET_USED() throws Exception {
         String ticket = ticket(product.productId(), customerId);
         String first = body(accept(customerId, product.productId(), product.optionId(), "key-used-1", ticket));
