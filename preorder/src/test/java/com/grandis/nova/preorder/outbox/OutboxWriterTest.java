@@ -1,5 +1,6 @@
 package com.grandis.nova.preorder.outbox;
 
+import com.grandis.nova.preorder.outbox.OutboxMessage.CancelJobReady;
 import com.grandis.nova.preorder.outbox.OutboxMessage.PreorderCancelRequested;
 import com.grandis.nova.preorder.outbox.OutboxMessage.RegisterJobReady;
 import com.grandis.nova.preorder.preorder.CancelReason;
@@ -70,6 +71,19 @@ class OutboxWriterTest {
                 .containsEntry("job_type", "REGISTER");
         assertThat(String.valueOf(row.get("sync_job_id"))).isEqualTo(String.valueOf(aggregateId));
         assertThat((String) row.get("event_id")).matches("[0-9a-f-]{36}");
+    }
+
+    @Test
+    void 작업_종류는_이벤트가_정한_값으로만_나간다() {
+        Long id = transactionTemplate.execute(status ->
+                writer.append(new CancelJobReady(aggregateId, "9f1c2d3e")).getId());
+
+        assertThat(jdbcTemplate.queryForMap("""
+                SELECT event_type, JSON_UNQUOTE(JSON_EXTRACT(payload, '$.jobType')) AS job_type
+                  FROM outbox_events WHERE id = ?
+                """, id))
+                .containsEntry("event_type", "CANCEL_JOB_READY")
+                .containsEntry("job_type", "CANCEL");
     }
 
     @Test

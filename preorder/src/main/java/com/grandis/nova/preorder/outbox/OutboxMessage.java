@@ -1,6 +1,7 @@
 package com.grandis.nova.preorder.outbox;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.grandis.nova.preorder.preorder.CancelReason;
 
 /**
@@ -18,11 +19,15 @@ public sealed interface OutboxMessage {
 
     Long aggregateId();
 
-    /** 접수 트랜잭션. worker 가 syncJobId 로 작업을 읽어 외부 등록을 보낸다. */
-    record RegisterJobReady(Long syncJobId, String preorderId, String jobType) implements OutboxMessage {
+    /**
+     * 접수 트랜잭션. worker 가 syncJobId 로 작업을 읽어 외부 등록을 보낸다.
+     * jobType 은 record 칸이 아니라 고정값이다 — 칸으로 두면 이벤트 종류와 다른 값을 넣을 수 있다.
+     */
+    record RegisterJobReady(Long syncJobId, String preorderId) implements OutboxMessage {
 
-        public RegisterJobReady(Long syncJobId, String preorderId) {
-            this(syncJobId, preorderId, "REGISTER");
+        @JsonProperty
+        public String jobType() {
+            return "REGISTER";
         }
 
         @Override
@@ -41,11 +46,12 @@ public sealed interface OutboxMessage {
         }
     }
 
-    /** 주문 정리가 끝난 뒤. worker 가 외부 취소를 보낸다. */
-    record CancelJobReady(Long syncJobId, String preorderId, String jobType) implements OutboxMessage {
+    /** 주문 정리가 끝난 뒤. worker 가 외부 취소를 보낸다. jobType 은 고정값이다. */
+    record CancelJobReady(Long syncJobId, String preorderId) implements OutboxMessage {
 
-        public CancelJobReady(Long syncJobId, String preorderId) {
-            this(syncJobId, preorderId, "CANCEL");
+        @JsonProperty
+        public String jobType() {
+            return "CANCEL";
         }
 
         @Override
