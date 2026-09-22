@@ -22,11 +22,14 @@ class PreorderApplicationTest {
     }
 
     @Test
-    void ERD_스키마가_적용되어_있다() {
+    void 마이그레이션이_적용되어_있다() {
         List<String> tables = jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'shop'", String.class);
+        Integer failed = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0", Integer.class);
 
         assertThat(tables).contains("preorder_campaigns", "shipment_batches", "preorders", "preorder_events",
-                "preorder_sync_jobs", "preorder_sync_attempts");
+                "preorder_sync_jobs", "preorder_sync_attempts", "outbox_events", "flyway_schema_history");
+        assertThat(failed).isZero();
     }
 }
