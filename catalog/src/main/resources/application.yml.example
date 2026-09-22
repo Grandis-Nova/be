@@ -41,3 +41,7 @@ server:
 cache:
   product-ttl: 10m
   price-ttl: 1m
+
+# 검증만 한다. 공개키 하나면 되고 member 를 호출하지 않는다.
+jwt:
+  public-key: file:${JWT_PUBLIC_KEY_PATH:./keys/jwt-public.pem}

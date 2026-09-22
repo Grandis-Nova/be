@@ -44,10 +44,10 @@ be/
 
 | 서비스 | ECS desired | 스케일 기준 | 소유 테이블 |
 | --- | --- | --- | --- |
-| `member` | 2~4 | CPU | `customers` |
-| `catalog` | 2~6 | 요청 수 | `products` · `product_variants` |
-| **`preorder`** | **6~12** | **요청 수** | `preorders` · `preorder_events`<br>`preorder_campaigns` · `shipment_batches` |
-| `order` | 2~8 | CPU | `orders` · `order_items` · `order_events`<br>`cart_items` · `payments` · `payment_transactions` · `variant_stock` |
+| `member` | 2~4 | CPU | `customers` · `refresh_tokens` |
+| `catalog` | 2~6 | 요청 수 | `categories` · `products` · `product_options` |
+| **`preorder`** | **6~12** | **요청 수** | `preorders` · `preorder_events`<br>`preorder_campaigns` · `shipment_batches` · `product_reviews` |
+| `order` | 2~8 | CPU | `orders` · `order_items` · `order_events`<br>`cart_items` · `payments` · `payment_transactions` · `option_inventories` |
 | `worker` | 1~20 | Backlog per Task · SPOT | `preorder_sync_jobs` · `preorder_sync_attempts` |
 | `batch` | **1 고정** | — | (읽기) |
 

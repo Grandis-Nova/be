@@ -55,3 +55,7 @@ nova:
 external:
   mock:
     base-url: http://localhost:8081
+
+# 검증만 한다. 공개키 하나면 되고 member 를 호출하지 않는다.
+jwt:
+  public-key: file:${JWT_PUBLIC_KEY_PATH:./keys/jwt-public.pem}
