@@ -7,6 +7,9 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    // 다른 서비스 내부 API 는 HTTP Interface(@HttpExchange) + RestClient 로 부른다.
+    implementation 'org.springframework.boot:spring-boot-starter-restclient'
+    implementation 'com.github.ben-manes.caffeine:caffeine'
     runtimeOnly 'com.mysql:mysql-connector-j'
 
     // DB 동작(조건부 UPDATE 영향 행 · UNIQUE 충돌 · 잠금)은 MySQL 로만 검증한다. H2 는 쓰지 않는다.
