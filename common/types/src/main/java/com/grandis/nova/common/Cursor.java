@@ -31,8 +31,15 @@ public final class Cursor {
                 .encodeToString(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 클라이언트가 보낸 값이므로 깨져 있을 수 있다. 디코딩에 실패하면 500 이 아니라 400 이다.
+     */
     public static String[] decode(String cursor) {
-        String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
-        return raw.split("\\" + DELIMITER, -1);
+        try {
+            String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            return raw.split("\\" + DELIMITER, -1);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_FAILED, "커서가 올바르지 않습니다.");
+        }
     }
 }
