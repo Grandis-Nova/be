@@ -33,29 +33,64 @@ spring:
         pool:
           max-active: 16
           max-wait: 100ms
-  security:
-    oauth2:
-      client:
-        registration:
-          kakao:
-            client-id: CHANGE_ME
-            client-secret: CHANGE_ME
-            redirect-uri: http://localhost:8080/login/oauth2/code/kakao
-            authorization-grant-type: authorization_code
-            client-authentication-method: client_secret_post
-            scope: profile_nickname
-        provider:
-          kakao:
-            authorization-uri: https://kauth.kakao.com/oauth/authorize
-            token-uri: https://kauth.kakao.com/oauth/token
-            user-info-uri: https://kapi.kakao.com/v2/user/me
-            user-name-attribute: id
-
 server:
   port: 8080
 
-# 서명 키. openssl rand -base64 64 로 각자 만든다. 이 값이 유출되면 토큰을 위조할 수 있다.
+# D-1(프론트 주도 코드 교환): 프론트가 카카오에서 받은 code 를 POST /api/v1/auth/kakao/callback 으로 보내면 우리가 카카오에 code 를 낸다.
+# spring.security.oauth2.client 는 쓰지 않는다. client-secret 은 서버에만 있다(Secrets Manager 주입).
+# allowed-redirect-uris: 프론트가 보낸 redirectUri 가 이 목록에 정확히 있어야 한다. 아무 값이나 받으면 code 가 다른 사이트로 샌다.
+kakao:
+  client-id: CHANGE_ME
+  client-secret: CHANGE_ME
+  token-uri: https://kauth.kakao.com/oauth/token
+  user-info-uri: https://kapi.kakao.com/v2/user/me
+  allowed-redirect-uris:
+    - http://localhost:3000/login/kakao/callback
+  connect-timeout: 2s
+  read-timeout: 5s
+
+# D-4: 관리자는 회원 밖 단일 계정. password-hash 는 bcrypt 만 받는다(평문이면 기동 실패).
+#   htpasswd -nBC 12 "" | tr -d ':\n'
+admin:
+  username: admin
+  password-hash: CHANGE_ME_TO_BCRYPT_HASH
+
+auth:
+  # 리프레시 쿠키. 로컬 http 에서는 false 로.
+  cookie:
+    secure: true
+  # 재발급(POST /session/refresh)은 쿠키만으로 도는 유일한 상태 변경 경로라 브라우저의 Origin 헤더를 이 목록과 대조한다(정확 일치).
+  # 프론트 오리진(scheme://host[:port]). 없거나 목록 밖이면 403.
+  refresh:
+    allowed-origins:
+      - http://localhost:3000
+  # D-2: 폐기 표식 조회가 실패했을 때 401 로 닫는 경로. 목록 밖은 열린다(통과 + 경고 + 카운터).
+  # 비우면 기본값(아래 여섯 개)이 쓰인다. 주문 모델이 확정되면 경로 이름이 바뀔 수 있다(08 D-2).
+  revocation-check:
+    fail-closed-paths:
+      - /api/v1/admin/**
+      - /api/v1/session/refresh
+      - /api/v1/orders/*/payment-attempts/**
+      - /api/v1/reservations/*/cancel
+      - /api/v1/orders/*/cancel
+      - /api/v1/me/**
+
+# 서명은 RS256(D-12 ①). member 만 개인키를 갖고 서명한다. 다른 서비스는 jwk-set-uri 로 공개키를 받아 검증만 한다.
+#   개인키 생성: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt.pem   (PKCS#8, "BEGIN PRIVATE KEY")
+#   운영은 Secrets Manager 에 두고 ECS secrets 로 주입. CHANGE_ME 면 기동이 실패한다.
+# 키 교체 절차의 정본은 docs/auth/02-result.md §3. 요지: 서명 전환 배포 때 public-keys 를 **옛** 공개키로 바꾼다(새 공개키를 남겨 두면 옛 kid 가 사라져
+# 살아 있는 리프레시 14일치가 죽는다). 옛 공개키는 리프레시 만료(14d) 뒤 제거.
 jwt:
-  secret: CHANGE_ME
-  access-token-validity: 30m
-  refresh-token-validity: 14d
+  issuer: nova
+  audience: nova-api            # RFC 8725 §3.9. 검증하는 서비스 넷이 같은 값. 비우면 nova-api
+  key-id: 2026-09-k1            # 토큰 헤더 kid. 키를 바꿀 때마다 새 이름
+  private-key: CHANGE_ME
+  # public-keys:                # 교체 중인 이전 공개키(kid → X.509 PEM). 검증 서비스에서는 jwk-set-uri 대신 쓸 수도 있다
+  #   2026-06-k0: |
+  #     -----BEGIN PUBLIC KEY-----
+  #     ...
+  #     -----END PUBLIC KEY-----
+  # jwk-set-uri: https://…/.well-known/jwks.json   # 검증 서비스(catalog·preorder·order)만. member 는 비운다. https 가 아니면 기동 실패
+  # jwk-set-allow-http: true                         # VPC 안 Cloud Map 주소(http://member.ureca.local:8080/…)를 쓰는 동안만 명시(D-12 ⑤). TLS 가 붙으면 지운다
+  access-token-validity: 1h     # D-7
+  refresh-token-validity: 14d   # 0 이나 음수는 기동 실패
