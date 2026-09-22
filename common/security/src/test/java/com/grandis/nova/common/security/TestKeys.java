@@ -60,7 +60,7 @@ public final class TestKeys {
     }
 
     public static JwtKeyRing ring(JwtProperties properties, Clock clock) {
-        return new JwtKeyRing(properties, clock, RestClient.create());
+        return new JwtKeyRing(properties, clock, RestClient.create(), Runnable::run);
     }
 
     public static JwtTokenProvider issuer(String issuer, KeyPair pair, String kid, Duration access, Duration refresh, Clock clock) {

@@ -24,12 +24,15 @@ public class JwtConfiguration {
         return Clock.systemUTC();
     }
 
-    /** 서명·검증 키. JWKS 를 받는 HTTP 클라이언트는 JDK HttpClient 로 직접 건다(연결 2s · 읽기 3s) — Boot 의 RestClient 빌더 빈을 안 쓴다(카카오 클라이언트와 같은 이유). */
+    /**
+     * 서명·검증 키. JWKS 를 받는 HTTP 클라이언트는 JDK HttpClient 로 직접 건다(연결 2s · 읽기 3s) — Boot 의 RestClient 빌더 빈을 안 쓴다(카카오 클라이언트와 같은 이유).
+     * 받기는 링이 가진 데몬 스레드에서만 돈다(주기 5분 + 모르는 kid 때 비동기 1회). 요청 스레드는 캐시만 읽는다. 컨텍스트가 닫히면 AutoCloseable 로 그 스레드가 멈춘다.
+     */
     @Bean
     public JwtKeyRing jwtKeyRing(JwtProperties properties, Clock clock) {
         java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(2)).build();
         org.springframework.http.client.JdkClientHttpRequestFactory factory = new org.springframework.http.client.JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(java.time.Duration.ofSeconds(3));
-        return new JwtKeyRing(properties, clock, org.springframework.web.client.RestClient.builder().requestFactory(factory).build());
+        return JwtKeyRing.withBackgroundRefresh(properties, clock, org.springframework.web.client.RestClient.builder().requestFactory(factory).build());
     }
 }

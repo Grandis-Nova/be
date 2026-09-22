@@ -20,7 +20,7 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * kid → 공개키. 정적 키, JWKS 받기, 모르는 kid 때 한 번 재조회, 10초 안에는 재조회 안 함, 서버가 죽어도 예외 없이 "없음".
+ * kid → 공개키. 정적 키, JWKS 받기, 모르는 kid 때 갱신 한 번(요청 스레드가 아니라 executor 에서), 10초 안에는 재조회 안 함, 서버가 죽어도 예외 없이 "없음".
  */
 @DisplayName("JwtKeyRing — kid 로 공개키 고르기")
 class JwtKeyRingTest {
@@ -71,7 +71,7 @@ class JwtKeyRingTest {
     }
 
     @Test
-    @DisplayName("jwk-set-uri: 모르는 kid 가 오면 JWKS 를 받아 캐시하고, 10초 안에 또 모르는 kid 가 와도 다시 받지 않는다. 서버 5xx 면 예외 없이 '없음'")
+    @DisplayName("jwk-set-uri(동기 executor): 모르는 kid 가 오면 JWKS 를 받아 캐시하고, 10초 안에 또 모르는 kid 가 와도 다시 받지 않는다. 서버 5xx 면 예외 없이 '없음'")
     void jwksFetchCacheAndRateLimit() {
         JwtKeyRing issuerRing = TestKeys.ring(TestKeys.issuerProperties("nova-test", ACCESS, REFRESH), Clock.systemUTC());
         String json = jwksJson(issuerRing);
@@ -79,7 +79,7 @@ class JwtKeyRingTest {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         JwtProperties p = new JwtProperties("nova-test", ACCESS, REFRESH, null, null, null, Map.of(), JWKS_URI, true);   // http 는 명시적으로만
-        JwtKeyRing verifier = new JwtKeyRing(p, clock, builder.build());
+        JwtKeyRing verifier = new JwtKeyRing(p, clock, builder.build(), Runnable::run);   // 동기 executor: 갱신이 그 자리에서 끝난다
 
         // 1) 첫 조회: 받는다
         server.expect(requestTo(JWKS_URI)).andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
@@ -122,6 +122,73 @@ class JwtKeyRingTest {
         server.expect(requestTo(JWKS_URI)).andRespond(withSuccess(jwksJson(third), MediaType.APPLICATION_JSON));
         assertThat(verifier.resolve("unknown-k3")).isPresent();
         server.verify();
+    }
+
+    @Test
+    @DisplayName("갱신은 요청 스레드에서 돌지 않는다: 모르는 kid 는 즉시 '없음'(HTTP 0회), 갱신 작업 하나만 executor 에 실리고, 그 작업이 돈 뒤 다음 조회부터 잡힌다")
+    void refreshRunsOnExecutorNotOnRequestThread() {
+        JwtKeyRing issuerRing = TestKeys.ring(TestKeys.issuerProperties("nova-test", ACCESS, REFRESH), Clock.systemUTC());
+        String json = jwksJson(issuerRing);
+        MutableClock clock = new MutableClock();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        JwtProperties p = new JwtProperties("nova-test", ACCESS, REFRESH, null, null, null, Map.of(), JWKS_URI, true);
+        JwtKeyRing verifier = new JwtKeyRing(p, clock, builder.build(), queued::add);   // 모아만 두는 executor
+
+        // 요청 스레드: HTTP 없이 바로 '없음'. 서버에 기대 요청이 없으므로 여기서 호출이 나가면 MockRestServiceServer 가 바로 실패시킨다
+        assertThat(verifier.resolve(TestKeys.KID)).isEmpty();
+        assertThat(queued).hasSize(1);
+        // 진행 중에 또 모르는 kid 가 와도 작업을 하나 더 걸지 않는다
+        assertThat(verifier.resolve("another")).isEmpty();
+        assertThat(queued).hasSize(1);
+        server.verify();
+
+        // 백그라운드: 그 작업이 돌면 받는다
+        server.expect(requestTo(JWKS_URI)).andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+        queued.get(0).run();
+        server.verify();
+        assertThat(verifier.resolve(TestKeys.KID)).isPresent();
+
+        // 성공 뒤 10초 안의 모르는 kid 는 작업도 안 건다
+        assertThat(verifier.resolve("rotated")).isEmpty();
+        assertThat(queued).hasSize(1);
+        // 10초 지나면 다시 하나 건다
+        clock.now = clock.now.plusSeconds(11);
+        assertThat(verifier.resolve("rotated")).isEmpty();
+        assertThat(queued).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("withBackgroundRefresh: jwk-set-uri 가 없으면 스레드를 만들지 않고, 있으면 주기 갱신이 백그라운드에서 돌다가 close() 로 멈춘다")
+    void backgroundRefreshLifecycle() throws Exception {
+        JwtKeyRing issuerRing = JwtKeyRing.withBackgroundRefresh(TestKeys.issuerProperties("nova-test", ACCESS, REFRESH), Clock.systemUTC(), RestClient.create());
+        assertThat(issuerRing.fetchesJwks()).isFalse();
+        assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName)).doesNotContain("jwks-refresh");
+        issuerRing.close();
+
+        String json = jwksJson(issuerRing);
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(JWKS_URI)).andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+        JwtProperties p = new JwtProperties("nova-test", ACCESS, REFRESH, null, null, null, Map.of(), JWKS_URI, true);
+        try (JwtKeyRing verifier = JwtKeyRing.withBackgroundRefresh(p, Clock.systemUTC(), builder.build())) {
+            assertThat(verifier.fetchesJwks()).isTrue();
+            // 기동 직후 첫 갱신은 백그라운드에서 돈다. 조건 대기(고정 sleep 아님)로 결과를 본다
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (verifier.resolve(TestKeys.KID).isEmpty() && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(verifier.resolve(TestKeys.KID)).as("백그라운드 첫 갱신").isPresent();
+            server.verify();
+            assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName)).contains("jwks-refresh");
+        }
+        // close() 뒤 스레드가 사라진다 — 종료도 조건 대기
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (Thread.getAllStackTraces().keySet().stream().anyMatch(t -> t.getName().equals("jwks-refresh")) && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(Thread.getAllStackTraces().keySet().stream().map(Thread::getName)).doesNotContain("jwks-refresh");
     }
 
     @Test

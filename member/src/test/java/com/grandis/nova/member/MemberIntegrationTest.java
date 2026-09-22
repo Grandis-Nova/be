@@ -258,7 +258,7 @@ class MemberIntegrationTest {
         publicKeys.forEach((kid, key) -> pems.put(kid, com.grandis.nova.common.security.PemKeys.toPem(key)));
         var verifierProps = new com.grandis.nova.common.security.JwtProperties("nova-test", java.time.Duration.ofHours(1), java.time.Duration.ofDays(14), null, null, null, pems, null, null);
         var verifier = new com.grandis.nova.common.security.JwtTokenProvider(verifierProps,
-                new com.grandis.nova.common.security.JwtKeyRing(verifierProps, java.time.Clock.systemUTC(), org.springframework.web.client.RestClient.create()), java.time.Clock.systemUTC());
+                new com.grandis.nova.common.security.JwtKeyRing(verifierProps, java.time.Clock.systemUTC(), org.springframework.web.client.RestClient.create(), Runnable::run), java.time.Clock.systemUTC());
         assertThat(verifier.parse(access).role()).isEqualTo(com.grandis.nova.common.security.Role.USER);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> verifier.create("1", com.grandis.nova.common.security.Role.USER, UUID.randomUUID(), com.grandis.nova.common.security.TokenType.ACCESS))
                 .isInstanceOf(IllegalStateException.class);   // 검증 서비스는 발급 못 한다

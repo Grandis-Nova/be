@@ -42,7 +42,7 @@ public final class TestKeys {
     }
 
     public static JwtTokenProvider issuer(JwtProperties properties, Clock clock) {
-        return new JwtTokenProvider(properties, new JwtKeyRing(properties, clock, RestClient.create()), clock);
+        return new JwtTokenProvider(properties, new JwtKeyRing(properties, clock, RestClient.create(), Runnable::run), clock);
     }
 
     public static void register(DynamicPropertyRegistry registry) {
