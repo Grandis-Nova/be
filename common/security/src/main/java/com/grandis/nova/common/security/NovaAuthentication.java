@@ -5,7 +5,7 @@ import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 /**
- * SecurityContext 에 들어가는 인증 객체. 원본의 UsernamePasswordAuthenticationToken + UserDetails 대신 principal 하나만 든다.
+ * SecurityContext 에 들어가는 인증 객체. UsernamePasswordAuthenticationToken + UserDetails 대신 principal 하나만 든다.
  * 권한은 ROLE_USER / ROLE_ADMIN 하나뿐이라 hasRole("ADMIN") 이 그대로 읽는다(실측: SecurityChainTest).
  */
 public final class NovaAuthentication extends AbstractAuthenticationToken {

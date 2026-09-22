@@ -6,9 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * D-4: `admin.username`, `admin.password-hash`. 둘 다 Secrets Manager 참조(ECS secrets 주입). 평문 비밀번호는 어디에도 없다.
+ * `admin.username`, `admin.password-hash`. 둘 다 Secrets Manager 참조(ECS secrets 주입). 평문 비밀번호는 어디에도 없다.
  * 해시는 `htpasswd -nBC 12 "" | tr -d ':\n'` 로 만든 bcrypt 다. 형식이 bcrypt 가 아니거나 cost 가 12 미만이면 기동에서 걸린다(실측: AdminPropertiesTest) —
- * 평문을 넣고 "로그인만 안 되는" 상태와, 약한 cost 로 만든 해시가 조용히 쓰이는 상태를 막는다. cost 는 올릴 수 있다(D-4: 12 이상, bcrypt 상한 31 — 05 ⑦).
+ * 평문을 넣고 "로그인만 안 되는" 상태와, 약한 cost 로 만든 해시가 조용히 쓰이는 상태를 막는다. cost 는 올릴 수 있다(12 이상, bcrypt 상한 31).
  */
 @Validated
 @ConfigurationProperties("admin")

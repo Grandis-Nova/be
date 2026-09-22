@@ -11,9 +11,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 /**
- * 06 §3 의 로그인 흐름. 카카오 호출 두 번은 트랜잭션 밖(외부 HTTP 가 커넥션을 5초씩 잡지 않게), 회원 INSERT 만 저장소 트랜잭션 안.
+ * 로그인 흐름. 카카오 호출 두 번은 트랜잭션 밖(외부 HTTP 가 커넥션을 5초씩 잡지 않게), 회원 INSERT 만 저장소 트랜잭션 안.
  *
- * 첫 로그인이 곧 가입이다(D-1·05 §3). 같은 카카오 회원이 동시에 첫 로그인하면 둘 다 "없음" 을 보고 INSERT 를 시도하고 하나는
+ * 첫 로그인이 곧 가입이다. 같은 카카오 회원이 동시에 첫 로그인하면 둘 다 "없음" 을 보고 INSERT 를 시도하고 하나는
  * uq_customer_kakao(1062)에 걸린다. 그건 정상 분기다 — 진 쪽은 다시 조회해 이긴 쪽 행을 쓴다(ERD 의 "UNIQUE 최종 방어, 1062 정상 분기").
  * 재조회는 실패한 INSERT 의 트랜잭션 밖에서 한다. 플러시가 실패한 영속성 컨텍스트를 다시 쓰지 않기 위해서다.
  * 이 "밖" 은 `spring.jpa.open-in-view=false` 에 기댄다 — 이 클래스에 @Transactional 이 없고 OSIV 가 꺼져 있어야 저장소 호출마다
@@ -41,7 +41,7 @@ public class KakaoLoginService {
 
         Customer customer = findOrCreate(user);
 
-        // 06 §3 4번: 제재 칸이 생기기 전까지 로그인은 막지 않는다. nbf 확인은 필터가 한다. 여기서는 발급만.
+        // 제재 칸이 생기기 전까지 로그인은 막지 않는다. nbf 확인은 필터가 한다. 여기서는 발급만.
         TokenService.IssuedTokens issued = tokens.issue(String.valueOf(customer.getId()), Role.USER);
         return new LoginResult(issued, customer.getDisplayName(), Role.USER);
     }

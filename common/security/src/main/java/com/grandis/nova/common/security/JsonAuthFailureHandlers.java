@@ -12,10 +12,10 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
 /**
- * 401 과 403 을 팀 공통 봉투(nova common:web ApiResponse)로 쓴다. 원본은 두 클래스가 같은 본문 작성 함수를 각자 갖고 있었다(03 ⑫). 하나로 합쳤다.
+ * 401 과 403 을 팀 공통 봉투(nova common:web ApiResponse)로 쓴다. entry point 와 access denied handler 가 같은 본문 작성 함수를 쓰도록 한 클래스에 둔다.
  * 401 UNAUTHENTICATED("세션 없음·만료"), 403 FORBIDDEN("권한 부족"). 이유(필터의 ATTR_FAILURE_REASON)는 응답에 내지 않는다.
- * 폐기 조회 실패로 닫힌 401 만 `error.details.retryable = true` 다(D-2). 공통 봉투에는 retryable 칸이 없으므로(nova PR #4, 2026-09-22)
- * 로그인 쪽 의미는 details 에 싣는다 — 프론트는 이 값으로 "잠시 후 재시도" 를 가른다(04 §1).
+ * 폐기 조회 실패로 닫힌 401 만 `error.details.retryable = true` 다(폐기 조회 실패 정책). 공통 봉투에는 retryable 칸이 없으므로(nova PR #4, 2026-09-22)
+ * 로그인 쪽 의미는 details 에 싣는다 — 프론트는 이 값으로 "잠시 후 재시도" 를 가른다.
  */
 public final class JsonAuthFailureHandlers {
 

@@ -6,7 +6,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** 05 ④: 빈 목록이 "전부 fail-open" 이 되지 않는다. */
+/** 빈 목록이 "전부 fail-open" 이 되지 않는다. */
 @DisplayName("RevocationCheckProperties — 기본 목록")
 class RevocationCheckPropertiesTest {
 

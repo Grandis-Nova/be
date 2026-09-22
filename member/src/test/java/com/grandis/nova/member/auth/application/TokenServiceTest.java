@@ -34,7 +34,7 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import static org.mockito.Mockito.doThrow;
 
 /**
- * 07 §1 단계 5: 발급 쌍의 sid 동일 · 회전 시 만료 유지 · 재사용 → 세션 폐기 · revokeAll → nbf. 저장소는 모킹, 토큰은 진짜로 만든다.
+ * 발급 쌍의 sid 동일 · 회전 시 만료 유지 · 재사용 → 세션 폐기 · revokeAll → nbf. 저장소는 모킹, 토큰은 진짜로 만든다.
  */
 @DisplayName("TokenService")
 class TokenServiceTest {
@@ -184,7 +184,7 @@ class TokenServiceTest {
     }
 
     @Test
-    @DisplayName("rotate: 폐기 조회가 안 되면 닫는다(D-2 재발급) — retryable 401, 회전 안 함")
+    @DisplayName("rotate: 폐기 조회가 안 되면 닫는다(재발급은 조회 실패 시 닫는 경로) — retryable 401, 회전 안 함")
     void rotateClosesWhenLookupUnavailable() {
         TokenService.IssuedTokens first = service.issue("101", Role.USER);
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("down")));

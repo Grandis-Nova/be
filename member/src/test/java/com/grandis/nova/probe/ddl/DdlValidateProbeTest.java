@@ -15,7 +15,7 @@ import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 
 /**
- * 07 §2 "ddl-auto: validate 가 customers 엔티티와 DDL 불일치를 잡는가 — 일부러 칸 하나 빼고 기동". 없는 칸을 가진 엔티티로 띄워 본다.
+ * "ddl-auto: validate 가 customers 엔티티와 DDL 불일치를 잡는가 — 일부러 칸 하나 빼고 기동". 없는 칸을 가진 엔티티로 띄워 본다.
  * 실제 MySQL 이 있어야 한다(없으면 skip).
  */
 @DisplayName("ddl-auto=validate 실측")

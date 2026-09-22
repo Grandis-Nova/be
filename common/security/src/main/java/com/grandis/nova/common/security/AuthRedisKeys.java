@@ -4,8 +4,8 @@ import java.util.UUID;
 
 /**
  * 인증이 쓰는 Redis 키의 단일 출처. 쓰는 쪽(member)과 읽는 쪽(필터, HTTP 서비스 4개)이 같은 상수를 본다.
- * D-9: 대기열과 Redis 한 대를 같이 쓰므로 접두 `auth:` 로 가른다. 클러스터 모드는 SELECT 로 논리 DB 를 못 나눠 접두가 유일한 경계다.
- * 06 §5 의 키 3종 그대로다.
+ * 대기열과 Redis 한 대를 같이 쓰므로 접두 `auth:` 로 가른다. 클러스터 모드는 SELECT 로 논리 DB 를 못 나눠 접두가 유일한 경계다.
+ * 인증이 쓰는 키는 이 셋뿐이다.
  */
 public final class AuthRedisKeys {
 

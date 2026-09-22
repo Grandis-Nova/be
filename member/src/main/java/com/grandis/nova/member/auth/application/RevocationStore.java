@@ -12,7 +12,7 @@ public interface RevocationStore {
     void revokeSession(UUID sessionId, Duration accessTokenTtl);
 
     /**
-     * 회원의 모든 세션을 끊는다(제재·탈퇴). sid 를 열거하지 않고 "지금 이전에 발급된 토큰은 전부 무효" 를 심는다(06 §5, 03 ⑦).
+     * 회원의 모든 세션을 끊는다(제재·탈퇴). sid 를 열거하지 않고 "지금 이전에 발급된 토큰은 전부 무효" 를 심는다.
      * 같은 초에 발급된 토큰도 무효다(RevocationRedisChecker 의 iat ≤ nbf). TTL 은 리프레시 만료 — 그 뒤엔 남은 토큰이 없다.
      */
     void revokeAll(String subject, Duration refreshTokenTtl);

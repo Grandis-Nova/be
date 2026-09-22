@@ -29,15 +29,15 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * 07 §1 단계 3 확인 방법 + 08 D-2 경로 정책 + api-spec 401/403 봉투. 필터 체인 전체를 MockMvc 로 태운다.
- * Redis 는 없다 — RevocationChecker 를 모킹해 세 가지 답을 만든다. 07 §2 의 두 실측(PathPattern 매칭, @CurrentCustomerId 의 ADMIN 403 경로)이 여기 있다.
+ * 필터 체인 확인 항목 + 폐기 조회 실패 경로 정책 + 401/403 봉투. 필터 체인 전체를 MockMvc 로 태운다.
+ * Redis 는 없다 — RevocationChecker 를 모킹해 세 가지 답을 만든다. 두 실측(PathPattern 매칭, @CurrentCustomerId 의 ADMIN 403 경로)이 여기 있다.
  */
 @SpringBootTest(classes = ChainTestApp.class, properties = {
         "jwt.issuer=nova-test",
         "jwt.access-token-validity=1h",
         "jwt.refresh-token-validity=14d"
 })
-@DisplayName("SecurityFilterChain (06 §2 규칙 · D-2 · api-spec 봉투)")
+@DisplayName("SecurityFilterChain (인가 규칙 · 폐기 조회 실패 정책 · 응답 봉투)")
 class SecurityChainTest {
 
     @org.springframework.test.context.DynamicPropertySource
@@ -147,7 +147,7 @@ class SecurityChainTest {
     }
 
     @Test
-    @DisplayName("D-2: 폐기 조회 실패 + 접수(열린 경로) → 200")
+    @DisplayName("폐기 조회 실패 + 접수(열린 경로) → 200")
     void lookupFailureOnIntakePasses() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("down")));
         mvc.perform(post("/api/v1/reservations").header(H, user)).andExpect(status().isOk());
@@ -172,7 +172,7 @@ class SecurityChainTest {
     }
 
     @Test
-    @DisplayName("D-2: 취소 경로 둘(reservations/*/cancel, orders/*/cancel)은 닫힌다")
+    @DisplayName("취소 경로 둘(reservations/*/cancel, orders/*/cancel)은 닫힌다")
     void lookupFailureOnCancelPathsIsClosed() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("down")));
         mvc.perform(post("/api/v1/reservations/abc/cancel").header(H, user)).andExpect(status().isUnauthorized());
@@ -180,7 +180,7 @@ class SecurityChainTest {
     }
 
     @Test
-    @DisplayName("D-2(2026-09-21): /api/v1/me/** 는 개인정보라 닫힌다 — 조회 실패 시 401 details.retryable=true. ** 가 0 세그먼트도 먹어 /api/v1/me 자체도")
+    @DisplayName("/api/v1/me/** 는 개인정보라 닫힌다 — 조회 실패 시 401 details.retryable=true. ** 가 0 세그먼트도 먹어 /api/v1/me 자체도")
     void lookupFailureOnMeIsClosed() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("down")));
         mvc.perform(get("/api/v1/me").header(H, user))
@@ -232,7 +232,7 @@ class SecurityChainTest {
     }
 
     @Test
-    @DisplayName("D-2: 폐기 조회 실패 + ADMIN 이 /admin/** (닫힌 경로) → 401")
+    @DisplayName("폐기 조회 실패 + ADMIN 이 /admin/** (닫힌 경로) → 401")
     void lookupFailureOnAdminIsClosed() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("down")));
         mvc.perform(get("/api/v1/admin/stats").header(H, admin)).andExpect(status().isUnauthorized());

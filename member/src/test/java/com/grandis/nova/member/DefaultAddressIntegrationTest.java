@@ -32,7 +32,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * 07 §1 단계 9: GET/PUT /me/default-address (api-spec F-X-01 끝). 실제 MySQL — DDL 의 ck_customer_default_address 가 여기서 실측된다.
+ * GET/PUT /me/default-address (api-spec F-X-01 끝). 실제 MySQL — DDL 의 ck_customer_default_address 가 여기서 실측된다.
  * 카카오 없이 회원 행을 직접 만들고 발급기로 USER 토큰을 만든다. Redis 는 필터의 폐기 조회에 쓰인다(없으면 skip).
  */
 @SpringBootTest(classes = MemberApplication.class, properties = {

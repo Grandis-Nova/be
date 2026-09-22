@@ -15,7 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-@DisplayName("AdminLoginService — D-4")
+@DisplayName("AdminLoginService — 환경변수 단일 관리자 계정")
 class AdminLoginServiceTest {
 
     private static final String HASH = "$2a$12$" + "x".repeat(53);

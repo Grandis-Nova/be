@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * 05 ②: 재발급이 회전 뒤에 DB 를 읽으면, DB 가 죽었을 때 회전만 되고 쿠키를 못 줘 다음 시도가 재사용으로 찍혔다.
+ * 재발급이 회전 뒤에 DB 를 읽으면, DB 가 죽었을 때 회전만 되고 쿠키를 못 줘 다음 시도가 재사용으로 찍혔다.
  * 지금은 DB 조회가 회전 앞이다 — DB 가 죽은 첫 시도는 500 이지만 저장소 jti 가 그대로라 같은 쿠키로 다시 오면 200 이다.
  * CustomerRepository 를 통째로 모킹한다(JPA 프록시는 spy 로 실메서드를 못 부른다). 리프레시는 TokenService 로 직접 만들고 Redis 는 진짜다.
  */

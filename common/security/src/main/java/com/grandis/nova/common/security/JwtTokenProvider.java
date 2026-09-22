@@ -13,13 +13,13 @@ import org.springframework.stereotype.Component;
 /**
  * JWT 를 만들고 파싱한다. 발급 정책(sid 생성·회전·폐기)은 member 의 TokenService 가 갖고, 여기는 서명과 클레임만 안다.
  *
- * 클레임은 06 §4 의 일곱 개에 aud 를 더한 여덟이다: sub · sid · jti · role · type · iat · exp · aud(RFC 8725 §3.9).
+ * 클레임은 여덟이다: sub · sid · jti · role · type · iat · exp · aud(RFC 8725 §3.9).
  * 헤더 typ 은 토큰 종류를 명시한다(RFC 8725 §3.11·§3.12, RFC 9068): ACCESS 는 "at+jwt", REFRESH 는 "rt+jwt". 파싱은 typ 과 type 클레임이
  * 서로 맞는지도 본다 — 종류가 다른 토큰의 검증 규칙이 배타적이어야 한다는 요구를 헤더와 클레임 두 겹으로 지킨다.
  * 파싱은 서명·issuer·audience·만료·필수 클레임·typ 을 전부 검사하고, 하나라도 어긋나면 InvalidTokenException 하나로 뭉친다.
  * jjwt 가 던지는 것(서명·형식·타입 변환)도, 이 클래스의 필수 클레임 검사도 전부 그 예외로 나간다. 호출자는 이유를 구분하지 않는다.
  *
- * 서명은 RS256(08 D-12 ①). 발급은 개인키(발급 서비스만), 검증은 헤더 kid 로 고른 공개키(JwtKeyRing). 개인키가 없는 서비스에서 create 를 부르면
+ * 서명은 RS256. 발급은 개인키(발급 서비스만), 검증은 헤더 kid 로 고른 공개키(JwtKeyRing). 개인키가 없는 서비스에서 create 를 부르면
  * IllegalStateException — 설정 실수가 첫 발급에서 바로 드러난다. alg 는 파싱 뒤에도 RS256 인지 본다(RFC 8725 §3.1, 키 혼동 방지).
  *
  * 시각은 주입된 Clock 에서만 온다. jjwt 의 만료 검사에도 같은 시계를 넣는다.
@@ -49,7 +49,7 @@ public class JwtTokenProvider {
         this.clock = clock;
     }
 
-    /** 타입에 맞는 만료(액세스 1h · 리프레시 14d, D-7)로 새 토큰을 만든다. jti 는 매번 새로 난다. */
+    /** 타입에 맞는 만료(설정값. 예시는 액세스 30m · 리프레시 14d)로 새 토큰을 만든다. jti 는 매번 새로 난다. */
     public String create(String subject, Role role, UUID sessionId, TokenType type) {
         Instant now = clock.instant();
         Instant expiresAt = now.plus(type == TokenType.ACCESS

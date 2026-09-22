@@ -111,7 +111,7 @@ class JwtKeyRingTest {
         assertThat(verifier.resolve("rotated-k2")).isPresent();
         server.verify();
 
-        // 6) 실패 뒤에는 10초를 다 쉬지 않는다: 1초 뒤 다음 요청이 다시 받는다 (리뷰 판정 1). 이번엔 성공하면 그 kid 가 잡힌다
+        // 6) 실패 뒤에는 10초를 다 쉬지 않는다: 1초 뒤 다음 요청이 다시 받는다. 이번엔 성공하면 그 kid 가 잡힌다
         server.reset();
         KeyPair k3 = TestKeys.generate();
         JwtKeyRing third = TestKeys.ring(TestKeys.issuerProperties("nova-test", k3, "unknown-k3", ACCESS, REFRESH), Clock.systemUTC());

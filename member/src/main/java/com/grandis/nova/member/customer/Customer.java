@@ -10,7 +10,7 @@ import jakarta.persistence.Table;
 
 /**
  * shop.customers (docs/schema.sql, 팀 SQL 그대로). 칸 이름·길이는 DDL 그대로. DDL 의 name·email·phone_number·token_version 은 member 가 아직 안 읽어 매핑하지 않는다(validate 는 DDL 에만 있는 칸을 안 잡는다). ddl-auto=validate 라 어긋나면 기동이 실패한다.
- * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(05 §3). 기본 배송지는 회원이 직접 입력한다(09 §2).
+ * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(닉네임 밖의 항목은 카카오 검수가 필요하다). 기본 배송지는 회원이 직접 입력한다.
  */
 @Entity
 @Table(name = "customers")
@@ -48,8 +48,8 @@ public class Customer extends BaseEntity {
     static final int DISPLAY_NAME_MAX = 100;
 
     /**
-     * 첫 카카오 로그인 = 가입. display_name 은 NOT NULL varchar(100) 이라 카카오에서 못 받은 경우와 넘치는 경우를 여기서 정한다
-     * (단계 6 리뷰 이월). 닉네임 동의가 없으면 "카카오 회원", 100자를 넘으면 앞 100자. 회원은 나중에 자기 이름으로 바꿀 수 있다(09).
+     * 첫 카카오 로그인 = 가입. display_name 은 NOT NULL varchar(100) 이라 카카오에서 못 받은 경우와 넘치는 경우를 여기서 정한다.
+     * 닉네임 동의가 없으면 "카카오 회원", 100자를 넘으면 앞 100자. 회원은 나중에 자기 이름으로 바꿀 수 있다(그 기능이 생기면).
      * "100자" 는 코드포인트 기준이다. char 로 자르면 이모지(서러게이트 쌍)가 경계에서 반쪽이 나 조용히 깨진다. MySQL utf8mb4 varchar(100) 도 문자 단위다.
      * 세기 전에 NFC 로 정규화한다 — NFD 한글은 음절 하나가 자모 2~3 코드포인트라 같은 이름이 2.6배로 잡힌다(DefaultAddressRequest 와 같은 자).
      */

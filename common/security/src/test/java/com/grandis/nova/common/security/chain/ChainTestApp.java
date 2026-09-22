@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 체인 테스트용 최소 앱. SecurityConfig 는 06 §2 의 예시 그대로다 — 이 규칙이 각 서비스에 복사될 것이다.
+ * 체인 테스트용 최소 앱. SecurityConfig 는 서비스에 복사될 예시 그대로다 — 이 규칙이 각 서비스에 복사될 것이다.
  * 공개 8개(api-spec): 상품 GET 4 · 배송 차수 안내 · /auth/kakao/* 2 · /admin/session · /session/refresh(쿠키로 식별). 여기서는 대표만 둔다.
- * 컨트롤러는 D-2 닫는 경로 5개·공개 경로·관리자 경로·@CurrentCustomerId 경로·본문 있는 경로를 하나씩 대표한다.
+ * 컨트롤러는 조회 실패 시 닫는 경로 5개·공개 경로·관리자 경로·@CurrentCustomerId 경로·본문 있는 경로를 하나씩 대표한다.
  */
 @SpringBootApplication(scanBasePackages = "com.grandis.nova")
 public class ChainTestApp {

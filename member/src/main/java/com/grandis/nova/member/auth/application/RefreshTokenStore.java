@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * 세션(sid)마다 "현재 유효한 리프레시 jti" 하나를 든다. 원본 RefreshTokenStore 에서 회원별 ZSet 관련 두 메서드를 뺀 것(04).
+ * 세션(sid)마다 "현재 유효한 리프레시 jti" 하나를 든다. 회원별 세션 목록(ZSet)은 두지 않는다.
  * revokeAll 은 sid 를 열거하지 않고 회원 not-before 로 한다(RevocationStore).
  */
 public interface RefreshTokenStore {

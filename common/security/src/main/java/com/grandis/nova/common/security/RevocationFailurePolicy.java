@@ -8,7 +8,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.stereotype.Component;
 
 /**
- * D-2 의 "이 요청은 닫는 경로인가" 와 "열린 채 통과한 횟수" 를 한곳에 둔다.
+ * 폐기 조회 실패 정책의 "이 요청은 닫는 경로인가" 와 "열린 채 통과한 횟수" 를 한곳에 둔다.
  * 카운터는 CloudWatch 경보의 재료다(auth.revocation.fallback_open). 액추에이터 바인딩은 nova 로 옮길 때 붙인다 — 여기서는 숫자만 센다.
  */
 @Component

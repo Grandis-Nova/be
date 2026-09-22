@@ -31,9 +31,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * D-2 "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 쪽 저장소와 체커를 모킹해 죽은 상태를 만든다.
+ * "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 쪽 저장소와 체커를 모킹해 죽은 상태를 만든다.
  * 셋 다 죽은 경우 외에 한쪽만 실패하는 두 갈래를 따로 둔다 — 그래야 "하나가 실패해도 다른 하나는 시도한다" 가 시험에 잡힌다.
- * 표식을 못 심으면 액세스는 만료(1h)까지, 리프레시를 못 지우면 이미 리프레시를 가진 쪽은 14d 까지 — 08 D-2 "감수하는 위험 상한".
+ * 표식을 못 심으면 액세스는 만료까지, 리프레시를 못 지우면 이미 리프레시를 가진 쪽은 14d 까지 — 감수하는 위험 상한.
  */
 @SpringBootTest(classes = MemberApplication.class, properties = {
         "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC",

@@ -19,12 +19,12 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * 카카오 REST API 두 번: code → 토큰, 토큰 → 사용자. spring-security-oauth2-client 없이 RestClient 로 한다(D-1).
- * 카카오 토큰은 여기서 쓰고 버린다. 저장하지 않는다(05 §3).
+ * 카카오 REST API 두 번: code → 토큰, 토큰 → 사용자. spring-security-oauth2-client 없이 RestClient 로 한다.
+ * 카카오 토큰은 여기서 쓰고 버린다. 저장하지 않는다.
  *
  * 실패는 전부 AuthErrorCode.INVALID_OAUTH_CALLBACK(400) 하나로 뭉친다. 카카오의 오류 코드(KOE320 등)는 로그에만 남긴다 —
  * 사용자에게는 "다시 로그인" 이 유일한 조치이고, 원문을 응답에 실으면 카카오 쪽 정보가 샌다.
- * 응답 구조는 07 §1 단계 8 에서 실측했다(2026-09-19): 토큰 응답은 access_token·token_type·refresh_token·expires_in·scope·refresh_token_expires_in,
+ * 응답 구조는 실제 카카오 앱으로 실측했다(2026-09-19): 토큰 응답은 access_token·token_type·refresh_token·expires_in·scope·refresh_token_expires_in,
  * 사용자 응답의 id 는 JSON 숫자, 닉네임은 kakao_account.profile.nickname, profile_image_url 은 동의 항목을 안 켜면 키 자체가 없다.
  * code 재사용은 400 KOE320(invalid_grant), client_secret 누락은 401 KOE010(invalid_client).
  */
@@ -89,7 +89,7 @@ public class KakaoOAuthClient {
             return request.get();
         } catch (RestClientResponseException e) {
             // 4xx: code 만료·재사용·redirect_uri 불일치(KOE303/KOE320). 5xx: 카카오 장애. 둘 다 사용자 조치는 같다.
-            // 로그에는 error·error_code 두 필드만. 본문 원문은 싣지 않는다 — KOE320 본문에 인가 code 원문이 들어오는 것을 단계 8 에서 봤고
+            // 로그에는 error·error_code 두 필드만. 본문 원문은 싣지 않는다 — KOE320 본문에 인가 code 원문이 들어오는 것을 실측에서 봤고
             // (쓰인 code 라 값은 없지만) 다른 4xx 가 안 쓰인 code 를 싣지 않는다는 보장이 없다. 요청 본문(client_secret 포함)은 어디에도 찍지 않는다.
             log.warn("kakao {} call failed status={} {}", what, e.getStatusCode().value(), errorSummary(e.getResponseBodyAsString()));
             throw new BusinessException(AuthErrorCode.INVALID_OAUTH_CALLBACK);

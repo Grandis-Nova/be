@@ -42,8 +42,8 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * application.yml.example 을 그대로 읽어 컨텍스트를 띄운다(비밀값 자리표시자만 덮는다 — 자리표시자는 전부 기동을 막도록 되어 있다). 예시 파일의 키 이름이 실제 바인딩과
- * 어긋나면 여기서 잡힌다 — 예시만 고치고 코드를 안 고치는(또는 그 반대) 사고를 막는다. 07 §2 의 세 줄이 여기서 실측된다:
- * Hikari 격리 수준, spring.data.redis.timeout → Lettuce 명령 타임아웃, 카카오·관리자·쿠키·D-2 경로 바인딩.
+ * 어긋나면 여기서 잡힌다 — 예시만 고치고 코드를 안 고치는(또는 그 반대) 사고를 막는다. 아래 셋이 여기서 실측된다:
+ * Hikari 격리 수준, spring.data.redis.timeout → Lettuce 명령 타임아웃, 카카오·관리자·쿠키·닫는 경로 바인딩.
  */
 @SpringBootTest(classes = MemberApplication.class)
 @DisplayName("application.yml.example 이 그대로 뜬다 (실제 MySQL)")

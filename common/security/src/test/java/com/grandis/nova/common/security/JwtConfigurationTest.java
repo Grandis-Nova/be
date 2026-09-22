@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 /**
- * 설정 바인딩과 Clock 빈. 07 §2 실측 표의 "@ConditionalOnMissingBean 이 일반 @Configuration 에서 동작하는가" 를 여기서 잰다.
+ * 설정 바인딩과 Clock 빈. "@ConditionalOnMissingBean 이 일반 @Configuration 에서 동작하는가" 를 여기서 잰다.
  * 스프링 부트는 그 조건을 자동설정 클래스에서만 쓰라고 하므로, 앱이 Clock 을 따로 정의했을 때 빈이 하나인지 둘인지 실측한다.
  */
 @DisplayName("JwtConfiguration · JwtProperties 바인딩")
@@ -87,7 +87,7 @@ class JwtConfigurationTest {
     }
 
     @Test
-    @DisplayName("jwk-set-uri 가 http 면 기동 실패. jwk-set-allow-http=true 를 명시해야 받는다 (D-12 ⑤ — 기본값으로 http 가 들어가는 일이 없다)")
+    @DisplayName("jwk-set-uri 가 http 면 기동 실패. jwk-set-allow-http=true 를 명시해야 받는다 (기본값으로 http 가 들어가는 일이 없다)")
     void plainHttpJwkSetUriNeedsExplicitAllow() {
         runner.withPropertyValues("jwt.issuer=nova", "jwt.access-token-validity=1h", "jwt.refresh-token-validity=14d",
                         "jwt.jwk-set-uri=http://member:8080/.well-known/jwks.json")

@@ -12,10 +12,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * 06 §2 의 필터. 순서는 헤더 → 파싱 → ACCESS 확인 → 폐기 조회(D-2) → 컨텍스트.
+ * 인증 필터. 순서는 헤더 → 파싱 → ACCESS 확인 → 폐기 조회 → 컨텍스트.
  *
  * 이 필터는 401 을 직접 내지 않는다. 인증에 실패하면 컨텍스트를 비운 채 다음으로 넘기고, 보호 경로면 entry point 가 401 을 낸다.
- * 그래서 공개 경로에 잘못된 토큰이 와도 통과한다(원본의 판단 5). 실패 이유는 요청 속성과 WARN 로그에만 남는다.
+ * 그래서 공개 경로에 잘못된 토큰이 와도 통과한다 — 401 은 인가 규칙이 보호 경로에서만 낸다. 실패 이유는 요청 속성과 WARN 로그에만 남는다.
  *
  * 빈이 아니다. SecurityFilterChainSupport 가 체인 안에서 만든다 — 빈으로 두면 Boot 가 서블릿 필터로 한 번 더 등록한다.
  */
@@ -70,7 +70,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } catch (RevocationCheckFailedException e) {
             revoked = null;
             if (policy.failClosed(request)) {
-                // D-2: 닫는 경로. 폐기 여부를 모르면 거부하되 retryable 로 표시한다.
+                // 닫는 경로. 폐기 여부를 모르면 거부하되 retryable 로 표시한다.
                 reject(request, "revocation lookup failed on fail-closed path: " + e.getMessage(), true);
                 chain.doFilter(request, response);
                 return;

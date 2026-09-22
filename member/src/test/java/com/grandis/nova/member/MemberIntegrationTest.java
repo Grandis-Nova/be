@@ -50,9 +50,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * 07 §1 단계 7: 첫 로그인 → customers INSERT + 토큰 / 두 번째 → INSERT 없음 / 동시 첫 로그인 2개 → 행 1개 / 재발급 / 로그아웃 후 재발급 → 401.
+ * 첫 로그인 → customers INSERT + 토큰 / 두 번째 → INSERT 없음 / 동시 첫 로그인 2개 → 행 1개 / 재발급 / 로그아웃 후 재발급 → 401.
  * 실제 MySQL(localhost:3306, shop, nova/nova-local)·실제 Redis(6379). 카카오만 모킹. 둘 중 하나라도 없으면 skip.
- * 이것이 07 §0-3 의 첫 기동이다 — ddl-auto=validate 로 Customer 엔티티가 DDL 과 맞는지 컨텍스트 기동에서 확인된다.
+ * ddl-auto=validate 로 Customer 엔티티가 DDL 과 맞는지 컨텍스트 기동에서 확인된다.
  */
 @SpringBootTest(classes = MemberApplication.class, properties = {
         "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8",
@@ -88,7 +88,7 @@ class MemberIntegrationTest {
 
     @DynamicPropertySource
     static void adminHash(DynamicPropertyRegistry registry) {
-        registry.add("admin.password-hash", () -> new BCryptPasswordEncoder(12).encode(ADMIN_PASSWORD));   // D-4: cost 12 이상만 바인딩된다
+        registry.add("admin.password-hash", () -> new BCryptPasswordEncoder(12).encode(ADMIN_PASSWORD));   // cost 12 이상만 바인딩된다
         TestKeys.register(registry);
     }
 
@@ -153,7 +153,7 @@ class MemberIntegrationTest {
         assertThat(c.isHttpOnly()).isTrue();
         assertThat(c.getPath()).isEqualTo(AuthCookies.PATH);
         assertThat(c.getMaxAge()).isEqualTo(14 * 24 * 3600);
-        // D-6 다섯 요소 중 나머지 둘. 이 컨텍스트는 auth.cookie.secure=false 라 Secure 가 없어야 한다(true 쪽은 ConfigBindingTest)
+        // 쿠키 속성 다섯 중 나머지 둘. 이 컨텍스트는 auth.cookie.secure=false 라 Secure 가 없어야 한다(true 쪽은 ConfigBindingTest)
         String setCookie = r.getResponse().getHeader("Set-Cookie");
         assertThat(setCookie).contains("SameSite=Strict").doesNotContainIgnoringCase("secure");
     }

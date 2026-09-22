@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
- * 07 §2 "@Validated + @ConfigurationProperties record 의 @Pattern 위반이 기동을 막는가" 실측. D-4 의 cost 12 도 여기서 강제된다.
+ * "@Validated + @ConfigurationProperties record 의 @Pattern 위반이 기동을 막는가" 실측. cost 12 이상도 여기서 강제된다.
  */
 @DisplayName("AdminProperties — bcrypt 형식·cost 검사")
 class AdminPropertiesTest {
@@ -55,7 +55,7 @@ class AdminPropertiesTest {
     }
 
     @Test
-    @DisplayName("cost 4 해시는 bcrypt 형식이지만 D-4(12 이상) 미달이라 기동이 실패한다")
+    @DisplayName("cost 4 해시는 bcrypt 형식이지만 12 미만이라 기동이 실패한다")
     void lowCostFailsStartup() {
         String weak = new BCryptPasswordEncoder(4).encode("pw");
         assertThat(weak).startsWith("$2a$04$");
@@ -66,7 +66,7 @@ class AdminPropertiesTest {
     }
 
     @Test
-    @DisplayName("bcrypt cost 는 31 이 상한이다: 32 는 형식상 숫자 두 자리여도 기동 거부, 31 은 통과 (05 ⑦)")
+    @DisplayName("bcrypt cost 는 31 이 상한이다: 32 는 형식상 숫자 두 자리여도 기동 거부, 31 은 통과")
     void costUpperBound() {
         String body = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0";   // 53자
         runner.withPropertyValues("admin.password-hash=$2a$32$" + body).run(ctx -> assertThat(ctx).hasFailed());

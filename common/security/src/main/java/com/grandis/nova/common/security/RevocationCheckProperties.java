@@ -6,8 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * D-2: 폐기 조회가 실패했을 때 401 로 닫는 경로 목록. 목록 밖은 전부 열린다(통과 + 경고 + 카운터).
- * 기본값은 08 D-2 의 여섯 개다. 설정으로 덮어쓸 수 있지만, **빈 목록은 기본값으로 대체한다**(05 ④: null 만 대체하고 빈 List 는 그대로 써서
+ * 폐기 조회가 실패했을 때 401 로 닫는 경로 목록. 목록 밖은 전부 열린다(통과 + 경고 + 카운터).
+ * 기본값은 아래 여섯 개다. 설정으로 덮어쓸 수 있지만, **빈 목록은 기본값으로 대체한다**(보안 검토에서 잡힌 것: null 만 대체하고 빈 List 는 그대로 써서
  * 전부 fail-open 이 됐었다). 정말 전부 열고 싶다면 이 코드를 고쳐야 한다 — 설정 한 줄로 그렇게 될 수 없게.
  * 패턴은 Spring Security 7 의 PathPattern 문법이다. 메서드는 보지 않는다 — 같은 경로의 GET 도 닫힌다(조회가 닫혀도 손해가 없는 경로들).
  */
@@ -20,7 +20,7 @@ public record RevocationCheckProperties(List<String> failClosedPaths) {
             "/api/v1/orders/*/payment-attempts/**",    // 돈이 움직인다
             "/api/v1/reservations/*/cancel",           // 되돌릴 수 없다
             "/api/v1/orders/*/cancel",
-            "/api/v1/me/**");                          // 개인정보(기본 배송지). 접수 흐름 밖이라 닫아도 잃는 게 없다(05 ⑧, D-2 2026-09-21)
+            "/api/v1/me/**");                          // 개인정보(기본 배송지). 접수 흐름 밖이라 닫아도 잃는 게 없다(2026-09-21 추가)
 
     private static final Logger log = LoggerFactory.getLogger(RevocationCheckProperties.class);
 

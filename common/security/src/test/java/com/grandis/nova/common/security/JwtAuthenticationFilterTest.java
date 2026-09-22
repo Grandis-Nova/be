@@ -24,7 +24,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * 필터 한 장만 본다(원본 JwtAuthenticationFilterTest 와 같은 방식). 체인·401 봉투·경로 규칙은 SecurityChainTest.
+ * 필터 한 장만 본다. 체인·401 봉투·경로 규칙은 SecurityChainTest.
  * 폐기 조회는 모킹한다 — 세 가지 답(false / true / 예외)이 필터에서 어떻게 갈리는지가 대상이다.
  */
 @DisplayName("JwtAuthenticationFilter")
@@ -42,7 +42,7 @@ class JwtAuthenticationFilterTest {
     void setUp() {
         provider = TestKeys.issuer("nova-test", TestKeys.ISSUER, TestKeys.KID, Duration.ofHours(1), Duration.ofDays(14), Clock.fixed(NOW, ZoneOffset.UTC));
         checker = mock(RevocationChecker.class);
-        policy = new RevocationFailurePolicy(new RevocationCheckProperties(null));   // D-2 기본 목록
+        policy = new RevocationFailurePolicy(new RevocationCheckProperties(null));   // 닫는 경로 기본 목록
         filter = new JwtAuthenticationFilter(provider, checker, policy);
         SecurityContextHolder.clearContext();
     }
@@ -90,7 +90,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("REFRESH 토큰으로는 인증하지 않는다 (타입 오용, 단계 1 에서 넘긴 케이스)")
+    @DisplayName("REFRESH 토큰으로는 인증하지 않는다 (타입 오용)")
     void refreshTokenIsRejected() throws Exception {
         String refresh = provider.create("101", Role.USER, sid, TokenType.REFRESH);
 
@@ -137,7 +137,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("D-2: 폐기 조회 실패 + 열린 경로(접수) → 통과시키고 fallback_open 을 센다")
+    @DisplayName("폐기 조회 실패 + 열린 경로(접수) → 통과시키고 fallback_open 을 센다")
     void lookupFailureOnOpenPathPasses() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("redis down")));
 
@@ -148,7 +148,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("D-2: 폐기 조회 실패 + 닫힌 경로(재발급) → 인증하지 않고 retryable 표시를 남긴다")
+    @DisplayName("폐기 조회 실패 + 닫힌 경로(재발급) → 인증하지 않고 retryable 표시를 남긴다")
     void lookupFailureOnClosedPathRejects() throws Exception {
         when(checker.isRevoked(any())).thenThrow(new RevocationCheckFailedException(new RuntimeException("redis down")));
         MockHttpServletRequest request = request("/api/v1/session/refresh", access("101", Role.USER));
@@ -159,7 +159,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    @DisplayName("D-2: 조회 실패가 아닌 예상 못 한 예외는 뭉치지 않고 그대로 터진다 (조용한 통과보다 500 이 낫다)")
+    @DisplayName("조회 실패가 아닌 예상 못 한 예외는 뭉치지 않고 그대로 터진다 (조용한 통과보다 500 이 낫다)")
     void unexpectedExceptionPropagates() {
         when(checker.isRevoked(any())).thenThrow(new IllegalStateException("bug"));
 

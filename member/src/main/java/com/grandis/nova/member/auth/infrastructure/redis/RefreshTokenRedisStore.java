@@ -10,7 +10,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
 /**
- * 원본 RefreshTokenRedisRepository 에서 Lua 비교교환만 남긴 것(04: "Lua 비교교환 회전은 그대로. ZSet 관리 전부 삭제").
+ * 리프레시 jti 의 Lua 비교교환 저장소. 세션 목록(ZSet)은 두지 않는다.
  * 회전은 GET → 비교 → SET 을 서버 안에서 한 번에 한다. 클라이언트에서 GET 하고 SET 하면 그 사이에 다른 요청이 끼어 둘 다 성공한다.
  */
 @Repository

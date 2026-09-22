@@ -9,12 +9,12 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 
 /**
- * 리프레시 토큰 쿠키. 원본 AuthCookieSupport 에서 secure 를 설정값으로 뺀 것. 로컬 http 프로파일만 false.
+ * 리프레시 토큰 쿠키. secure 는 설정값이다. 로컬 http 프로파일만 false.
  * Path 를 재발급·로그아웃 경로로 좁혀 다른 API 요청에는 쿠키가 실리지 않게 한다 — 리프레시 쿠키를 보는 핸들러가 둘뿐이 된다(노출면).
- * SameSite=Strict: 프론트와 API 가 한 도메인(D-6)이고, 이 쿠키는 같은 사이트 XHR 의 재발급·로그아웃에만 쓰여 최상위 이동에 실릴 일이 없다.
- * OWASP 는 Strict 를 선호하고 잃는 것이 없어 Strict 다(2026-09-20, 10 §4 ③).
+ * SameSite=Strict: 프론트와 API 가 한 도메인이고, 이 쿠키는 같은 사이트 XHR 의 재발급·로그아웃에만 쓰여 최상위 이동에 실릴 일이 없다.
+ * OWASP 는 Strict 를 선호하고 잃는 것이 없어 Strict 다.
  *
- * 회원과 관리자는 쿠키 이름이 다르다(05 ⑦-2). 한 브라우저에서 둘을 같이 쓰면 같은 이름이 서로 덮어써 먼저 로그인한 쪽의 리프레시가
+ * 회원과 관리자는 쿠키 이름이 다르다. 한 브라우저에서 둘을 같이 쓰면 같은 이름이 서로 덮어써 먼저 로그인한 쪽의 리프레시가
  * 사라졌다. 이름을 가르면 둘이 공존한다. Path·속성은 같다.
  */
 @Component

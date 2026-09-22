@@ -32,9 +32,9 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
- * 07 §1 단계 4: 회전 성공 · jti 불일치 → 실패 · 키 없음 → 실패 · 동시 회전 2개 중 1개만 성공.
+ * 회전 성공 · jti 불일치 → 실패 · 키 없음 → 실패 · 동시 회전 2개 중 1개만 성공.
  * 그리고 쓰기(여기)와 읽기(common:security 의 RevocationRedisChecker)가 같은 키·같은 값 형식을 보는지 왕복으로 잰다.
- * 실제 Redis(localhost:6379). 없으면 skip. 이식 시 nova CI 에 Redis 서비스가 붙어야 한다(07 §3-7).
+ * 실제 Redis(localhost:6379). 없으면 skip. CI 에는 Redis 서비스 컨테이너가 붙어 있다.
  */
 @DisplayName("member Redis 저장소 (실제 Redis)")
 class RedisStoresTest {

@@ -18,7 +18,7 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
- * 07 §1 단계 2: 표식 없음 → 유효, sid 표식 → 거부, nbf ≥ iat → 거부, nbf < iat → 유효. 그리고 07 §2 의 "MGET 에서 없는 키는 null 인가".
+ * 표식 없음 → 유효, sid 표식 → 거부, nbf ≥ iat → 거부, nbf < iat → 유효. 그리고 "MGET 에서 없는 키는 null 인가" 실측.
  *
  * 진짜 Redis(localhost:6379)로 돈다. 모킹하면 MGET 의 반환 형태와 장애 시 예외 종류를 못 잰다.
  * Redis 가 없으면 건너뛴다(CI 에 Redis 가 없을 때 "깨짐" 으로 오독하지 않게). 건너뛴 사실은 리포트에 skipped 로 남는다.
@@ -168,7 +168,7 @@ class RevocationRedisCheckerTest {
     }
 
     @Test
-    @DisplayName("Redis 에 닿지 못하면 '폐기 아님' 이 아니라 조회 실패를 던진다 (판단은 필터의 D-2 정책)")
+    @DisplayName("Redis 에 닿지 못하면 '폐기 아님' 이 아니라 조회 실패를 던진다 (판단은 필터의 경로별 정책)")
     void unreachableRedisFails() {
         LettuceConnectionFactory dead = new LettuceConnectionFactory(new RedisStandaloneConfiguration("localhost", 6390),
                 LettuceClientConfiguration.builder().commandTimeout(Duration.ofMillis(300)).build());

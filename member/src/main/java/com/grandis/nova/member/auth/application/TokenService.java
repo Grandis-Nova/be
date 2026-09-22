@@ -19,12 +19,12 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 /**
- * 원본 JwtTokenLifecycle 의 축약(04). 발급·회전·폐기·전체 폐기 넷. replaceAccessToken(닉네임 변경용)은 없다.
+ * 발급·회전·폐기·전체 폐기 넷.
  *
  * 회전(RTR)은 세 검사를 지나야 한다.
  * 1. REFRESH 타입의 유효한 토큰인가(서명·만료).
  * 2. 폐기되지 않았는가 — 재발급 경로는 api-spec 에서 공개(쿠키로 식별)라 필터의 폐기 조회를 안 거친다. 여기서 직접 본다.
- *    안 보면 제재(nbf)된 회원이 리프레시로 새 토큰을 받아 제재를 우회한다. 조회가 안 되면 닫는다(D-2: 재발급은 닫는 경로) → retryable 401.
+ *    안 보면 제재(nbf)된 회원이 리프레시로 새 토큰을 받아 제재를 우회한다. 조회가 안 되면 닫는다(재발급은 조회 실패 시 닫는 경로) → retryable 401.
  * 3. 저장된 jti 와 같은가 — 다르면 이미 회전된 리프레시를 다시 낸 것(탈취 의심). 그 세션을 통째로 끊는다.
  * 회전해도 절대 만료는 늘지 않는다. 새 리프레시는 원 토큰의 exp 를 그대로 받는다.
  */
@@ -62,7 +62,7 @@ public class TokenService {
 
     /**
      * 재발급. 실패는 전부 401 이다. 재사용 탐지면 세션을 끊고 401, 폐기 조회 불가면 retryable 401.
-     * 폐기 검사는 **두 번**이다(05 ①): 회전 전 한 번, 회전 후 원 클레임으로 한 번 더. 첫 검사와 발급 사이에 revokeAll(nbf) 이 끼면
+     * 폐기 검사는 **두 번**이다: 회전 전 한 번, 회전 후 원 클레임으로 한 번 더. 첫 검사와 발급 사이에 revokeAll(nbf) 이 끼면
      * 새 토큰의 iat 가 nbf 뒤라 검사를 빠져나가는데, 원 리프레시의 iat 는 nbf 앞이라 두 번째 검사가 잡는다. 잡히면 세션을 끊는다.
      */
     public IssuedTokens rotate(String refreshToken) {
@@ -89,13 +89,13 @@ public class TokenService {
         boolean rotated = refreshTokens.rotate(claims.sessionId(), claims.tokenId(), newJti, remaining);
         if (!rotated) {
             // 저장된 jti 가 다르거나 키가 없다 = 이미 회전된 리프레시의 재사용. 원 소유자와 탈취자 중 누가 냈든 세션을 끊는다(RFC 9700).
-            // 표식·삭제를 각각 시도하고(05 ③) Redis 예외는 여기서 삼킨다 — 응답은 어차피 401 이고, 못 끊은 사실은 WARN 으로 남는다.
+            // 표식·삭제를 각각 시도하고 Redis 예외는 여기서 삼킨다 — 응답은 어차피 401 이고, 못 끊은 사실은 WARN 으로 남는다.
             revokeSessionBestEffort(claims.sessionId(), "refresh reuse");
             log.warn("refresh reuse detected, session revoked sid={}", shortSid(claims));
             throw new InvalidTokenException("refresh reuse sid=" + shortSid(claims));
         }
 
-        // 두 번째 검사(05 ①). 실패(조회 불가)도 폐기로 본다 — 재발급은 닫는 경로이고, 새 jti 를 클라이언트가 못 받은 채 끝나면 그 세션은 어차피 죽는다.
+        // 두 번째 검사. 실패(조회 불가)도 폐기로 본다 — 재발급은 닫는 경로이고, 새 jti 를 클라이언트가 못 받은 채 끝나면 그 세션은 어차피 죽는다.
         boolean revokedMeanwhile;
         try {
             revokedMeanwhile = revocationChecker.isRevoked(claims);
@@ -124,13 +124,13 @@ public class TokenService {
      * 로그아웃. sid 폐기 표식을 먼저 심고(필터가 읽는 것은 이 표식이라 액세스 토큰이 즉시 죽는다), 그다음 리프레시를 지운다.
      * 둘은 각각 시도한다 — 하나가 실패해도 다른 하나는 한다. Redis 예외(DataAccessException)만 모아 마지막에 던진다.
      * 프로그래밍 오류는 삼키지 않는다. 표식을 못 심으면 액세스는 만료(1h)까지, 리프레시를 못 지우면 이미 리프레시를 가진 쪽은
-     * 리프레시 만료(14d)까지 재발급할 수 있다 — 단 응답이 쿠키를 지우므로 본인 브라우저는 리프레시를 잃는다(D-2 "감수하는 위험 상한").
+     * 리프레시 만료(14d)까지 재발급할 수 있다 — 단 응답이 쿠키를 지우므로 본인 브라우저는 리프레시를 잃는다(감수하는 위험 상한).
      */
     public void revoke(TokenClaims accessClaims) {
         revoke(accessClaims.sessionId());
     }
 
-    /** sid 만으로 끊는다. 로그아웃은 액세스·리프레시 어느 쪽 토큰에서든 sid 를 얻는다(05 ⑤). */
+    /** sid 만으로 끊는다. 로그아웃은 액세스·리프레시 어느 쪽 토큰에서든 sid 를 얻는다. */
     public void revoke(UUID sessionId) {
         String sid = sessionId.toString().substring(0, 8);
         DataAccessException failure = null;

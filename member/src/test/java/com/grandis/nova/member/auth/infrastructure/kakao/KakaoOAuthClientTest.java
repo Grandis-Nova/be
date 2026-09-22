@@ -28,8 +28,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 /**
- * 07 §1 단계 6: 정상 응답 파싱, 4xx → INVALID_OAUTH_CALLBACK, 타임아웃. 카카오 없이 MockRestServiceServer 로 돈다.
- * 응답 JSON 은 단계 8 에서 실측한 실제 형태와 같다(토큰: access_token·token_type·refresh_token·expires_in·scope, 오류: error·error_description·error_code).
+ * 정상 응답 파싱, 4xx → INVALID_OAUTH_CALLBACK, 타임아웃. 카카오 없이 MockRestServiceServer 로 돈다.
+ * 응답 JSON 은 실제 카카오로 실측한 형태와 같다(토큰: access_token·token_type·refresh_token·expires_in·scope, 오류: error·error_description·error_code).
  */
 @ExtendWith(OutputCaptureExtension.class)
 @DisplayName("KakaoOAuthClient (MockRestServiceServer)")

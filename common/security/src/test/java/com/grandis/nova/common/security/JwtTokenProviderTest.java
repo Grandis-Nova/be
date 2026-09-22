@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * 07 §1 단계 1 의 확인 방법: 정상 파싱 · 서명 불일치 · issuer 불일치 · 만료 · 클레임 누락 · 타입 불일치, Clock.fixed 로 경계.
+ * 확인 항목: 정상 파싱 · 서명 불일치 · issuer 불일치 · 만료 · 클레임 누락 · 타입 불일치, Clock.fixed 로 경계.
  * 시계는 이 테스트가 소유한다. 발급과 파싱이 같은 MutableClock 을 보므로 경계를 1초 단위로 태울 수 있다.
  */
 @DisplayName("JwtTokenProvider")

@@ -56,7 +56,7 @@ class KakaoPropertiesTest {
     }
 
     @Test
-    @DisplayName("toString 은 client secret 을 찍지 않는다 (05 ⑦)")
+    @DisplayName("toString 은 client secret 을 찍지 않는다")
     void toStringMasksSecret() {
         String text = new KakaoProperties("cid", "very-secret-value", "https://a", "https://b", java.util.List.of("http://localhost:3000/cb"), null, null).toString();
         assertThat(text).doesNotContain("very-secret-value").contains("clientSecret=****").contains("cid");

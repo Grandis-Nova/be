@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 기본 배송지 조회·교체(api-spec F-X-01 끝). 주소록은 없고 회원당 하나다. 기존 주문의 배송지는 주문이 복사해 가므로 여기 변경과 무관하다.
  * 토큰의 subject 가 가리키는 행이 없으면 401 — 발급기가 만든 id 인데 행이 없다는 것은 그 세션이 더 이상 회원을 가리키지 않는다는 뜻이다.
- * 지금은 도달하지 않는 갈래다: 탈퇴가 없어(D-8) customers 행은 지워지지 않는다. 탈퇴가 생기면 이 갈래가 살아난다.
+ * 지금은 도달하지 않는 갈래다: 탈퇴가 없어 customers 행은 지워지지 않는다. 탈퇴가 생기면 이 갈래가 살아난다.
  */
 @Service
 public class CustomerService {

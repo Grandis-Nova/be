@@ -37,13 +37,13 @@ import org.springframework.web.bind.annotation.RestController;
  * api-spec F-X-01. 경로·응답 필드·오류 코드는 계약 그대로다.
  *
  * - POST /auth/kakao/callback {code, redirectUri} → 200 {sessionToken, displayName, role} + 쿠키 refresh_token.
- *   D-1(프론트 주도): state 는 프론트가 만들고 프론트가 검증한다(08 D-1 완료 조건 c). 서버는 redirectUri 가 허용 목록에 있는지만 본다.
- * - POST /session/refresh (쿠키) → 200 같은 모양 + 새 쿠키. 공개 경로. Origin 허용 목록(RefreshOriginPolicy) → 회원 이름을 **먼저** 읽고(05 ②:
+ *   프론트 주도 코드 교환: state 는 프론트가 만들고 프론트가 검증한다. 서버는 redirectUri 가 허용 목록에 있는지만 본다.
+ * - POST /session/refresh (쿠키) → 200 같은 모양 + 새 쿠키. 공개 경로. Origin 허용 목록(RefreshOriginPolicy) → 회원 이름을 **먼저** 읽고(
  *   회전 뒤에 DB 가 죽으면 회전만 되고 쿠키를 못 줘 다음 시도가 재사용으로 찍힌다) → TokenService.rotate(폐기 검사 두 번 포함).
  * - GET /session → {displayName, role}. USER 면 customers 에서 이름을 읽는다.
- * - DELETE /session → 항상 204 + 두 쿠키 만료. **공개 경로**(05 ⑤): 만료된 액세스로도 로그아웃이 되어야 한다. 액세스 헤더·회원 쿠키·관리자 쿠키
- *   중 파싱되는 것의 sid 를 전부 폐기한다. Redis 예외만 삼키고 WARN(D-2). 실패했을 때의 창은 TokenService.revoke 주석과 08 D-2.
- * - POST /admin/session {username, password} → 200 {sessionToken, role: ADMIN} + 쿠키 admin_refresh_token / 401 INVALID_CREDENTIALS. D-4.
+ * - DELETE /session → 항상 204 + 두 쿠키 만료. **공개 경로**: 만료된 액세스로도 로그아웃이 되어야 한다. 액세스 헤더·회원 쿠키·관리자 쿠키
+ *   중 파싱되는 것의 sid 를 전부 폐기한다. Redis 예외만 삼키고 WARN. 실패했을 때의 창은 TokenService.revoke 주석.
+ * - POST /admin/session {username, password} → 200 {sessionToken, role: ADMIN} + 쿠키 admin_refresh_token / 401 INVALID_CREDENTIALS.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -127,7 +127,7 @@ public class AuthController {
             try {
                 tokens.revoke(sid);
             } catch (DataAccessException e) {
-                // D-2 "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 예외만 삼킨다 — 다른 예외는 500 으로 드러나야 한다.
+                // "DELETE /session 은 열린 경로. 표식을 못 심으니 쿠키만 지우고 204". Redis 예외만 삼킨다 — 다른 예외는 500 으로 드러나야 한다.
                 log.warn("logout incomplete, cookie cleared anyway sid={} cause={}", sid.toString().substring(0, 8), e.getClass().getSimpleName());
             }
         }
@@ -164,7 +164,7 @@ public class AuthController {
             // CurrentCustomerIdArgumentResolver 와 같은 처리: USER 의 sub 는 발급기가 customers.id 로만 만든다. 십진수가 아니면 500 이 아니라 401.
             throw new InvalidTokenException("non-numeric subject for USER");
         }
-        // 행이 없으면 401 — CustomerService 와 같은 규칙(05 ⑥). 탈퇴가 없어(D-8) 지금은 도달하지 않는 갈래다.
+        // 행이 없으면 401 — CustomerService 와 같은 규칙. 탈퇴가 없어 지금은 도달하지 않는 갈래다.
         return customers.findById(customerId).map(c -> c.getDisplayName())
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.UNAUTHENTICATED));
     }

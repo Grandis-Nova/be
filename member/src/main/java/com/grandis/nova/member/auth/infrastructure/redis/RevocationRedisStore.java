@@ -9,7 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 /**
- * 원본 SessionRevocationRedisRepository 에서 revokeAll 의 ZSet 순회를 not-before 한 키로 바꾼 것.
+ * 폐기 표식 저장소. revokeAll 은 세션을 열거하지 않고 회원 not-before 키 하나로 한다.
  * 값 형식은 RevocationRedisChecker 가 읽는 것과 맞춘다: revoked-sid 는 "1", nbf 는 epoch 초 십진 문자열.
  */
 @Repository

@@ -9,8 +9,8 @@ import java.text.Normalizer;
  * 넷 중 하나가 빠지면 DB 에 가기 전에 400 VALIDATION_FAILED.
  *
  * 값은 생성자에서 NFC 로 정규화하고 앞뒤 공백을 지운 뒤에 검증한다(요청 경계 한 곳). 한글 음절은 NFD 면 자모 2~3 코드포인트라 "한국어이름" 이
- * NFC 5 / NFD 13 이다 — MySQL utf8mb4 도 코드포인트로 세므로 NFD 입력은 varchar(50) 에 16자밖에 안 들어가고 사용자는 17자를 쳤는데 400 을 받는다
- * (리뷰어 실측). macOS·iOS 붙여넣기에 NFD 가 섞여 온다. 정규화 뒤에는 검증·DB·사용자 인식이 같은 수를 센다.
+ * NFC 5 / NFD 13 이다 — MySQL utf8mb4 도 코드포인트로 세므로 NFD 입력은 varchar(50) 에 16자밖에 안 들어가고 사용자는 17자를 쳤는데 400 을 받는다.
+ * macOS·iOS 붙여넣기에 NFD 가 섞여 온다. 정규화 뒤에는 검증·DB·사용자 인식이 같은 수를 센다.
  */
 public record DefaultAddressRequest(
         @NotBlank @CodePointSize(max = 50) String name,
