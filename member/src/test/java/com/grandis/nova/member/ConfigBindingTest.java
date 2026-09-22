@@ -144,7 +144,7 @@ class ConfigBindingTest {
         assertThat(jwt.audience()).isEqualTo("nova-api");
         assertThat(jwt.issues()).isTrue();
         assertThat(jwt.keyId()).isEqualTo(TestKeys.KID);
-        assertThat(jwt.accessTokenValidity()).isEqualTo(Duration.ofHours(1));
+        assertThat(jwt.accessTokenValidity()).isEqualTo(Duration.ofMinutes(30));
         assertThat(jwt.refreshTokenValidity()).isEqualTo(Duration.ofDays(14));
     }
 }
