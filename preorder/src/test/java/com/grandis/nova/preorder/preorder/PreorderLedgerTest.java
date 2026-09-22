@@ -147,13 +147,13 @@ class PreorderLedgerTest {
     }
 
     @Test
-    void PENDING_SYNC_에서_시작한_취소는_거절될_수_없다() {
+    void 결제_가능한_적이_없는_예약의_취소는_거절될_수_없다() {
         Long id = ledger.accept(draft(customerId), EventActor.USER, null).getId();
         ledger.fire(id, CANCEL_REQUESTED, EventActor.USER, null);
 
         assertThatThrownBy(() -> ledger.fire(id, CANCEL_REJECTED, EventActor.SYSTEM, "SHIPPING_STARTED"))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(row(id)).containsEntry("status", "CANCELING");
+        assertThat(row(id)).containsEntry("status", "CANCELING").containsEntry("payable_from", null);
     }
 
     @Test

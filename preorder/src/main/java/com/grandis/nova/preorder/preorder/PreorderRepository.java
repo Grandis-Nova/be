@@ -27,6 +27,19 @@ public interface PreorderRepository extends JpaRepository<Preorder, Long> {
     int changeStatus(@Param("id") Long id, @Param("from") PreorderStatus from, @Param("to") PreorderStatus to,
                      @Param("now") Instant now);
 
+    /**
+     * 주문 쪽 취소 거절 → PAYABLE 로 되돌림. 결제 가능한 적이 있는(payable_from 이 있는) 예약만 되돌린다 —
+     * PENDING_SYNC 에서 시작한 취소를 되돌리면 결제 기한 기준 시각이 없는 PAYABLE 이 생긴다(ck_preorder_payable_from).
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Preorder p
+               set p.status = :payable, p.eventSequence = p.eventSequence + 1, p.updatedAt = :now
+             where p.id = :id and p.status = :from and p.payableFrom is not null
+            """)
+    int revertToPayable(@Param("id") Long id, @Param("now") Instant now,
+                        @Param("from") PreorderStatus from, @Param("payable") PreorderStatus payable);
+
     /** 등록 확인 반영. payable_from 은 처음 한 번만 찍는다(여기서 24시간이 결제 기한). */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""

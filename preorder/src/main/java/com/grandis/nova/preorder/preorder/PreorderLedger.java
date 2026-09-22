@@ -24,14 +24,11 @@ import java.time.Instant;
 public class PreorderLedger {
 
     private final PreorderRepository preorders;
-    private final PreorderEventRepository events;
     private final EntityManager entityManager;
     private final Clock clock;
 
-    public PreorderLedger(PreorderRepository preorders, PreorderEventRepository events,
-                          EntityManager entityManager, Clock clock) {
+    public PreorderLedger(PreorderRepository preorders, EntityManager entityManager, Clock clock) {
         this.preorders = preorders;
-        this.events = events;
         this.entityManager = entityManager;
         this.clock = clock;
     }
@@ -55,7 +52,7 @@ public class PreorderLedger {
      * 외부 등록 확인은 외부 예약 번호가 필요하므로 {@link #confirmRegister} 를 쓴다.
      *
      * @throws IllegalArgumentException 예약이 없다 — 호출하는 쪽이 먼저 확인한다
-     * @throws IllegalStateException    주문 쪽 취소 거절인데 그 취소가 PAYABLE 에서 시작하지 않았다
+     * @throws IllegalStateException    주문 쪽 취소 거절인데 결제 가능한 적이 없는 예약이다
      */
     public PreorderTransition fire(Long preorderId, PreorderTrigger trigger, EventActor actor, String reason) {
         if (trigger == PreorderTrigger.REGISTER_CONFIRMED) {
@@ -67,11 +64,12 @@ public class PreorderLedger {
         if (to == null) {
             return new PreorderTransition(false, from);
         }
-        if (trigger == PreorderTrigger.CANCEL_REJECTED) {
-            requireCancelStartedFromPayable(preorderId);
-        }
         Instant now = clock.instant();
-        requireOneRow(preorders.changeStatus(preorderId, from, to, now), preorderId);
+        if (trigger == PreorderTrigger.CANCEL_REJECTED) {
+            revertToPayable(preorderId, from, to, now);
+        } else {
+            requireOneRow(preorders.changeStatus(preorderId, from, to, now), preorderId);
+        }
         record(preorderId, from, to, actor, reason, now);
         return new PreorderTransition(true, to);
     }
@@ -98,17 +96,13 @@ public class PreorderLedger {
     }
 
     /**
-     * 취소 거절은 주문이 있을 때만 온다. 주문은 PAYABLE 이후에만 생기므로
-     * PENDING_SYNC 에서 시작한 취소가 거절되면 어딘가 잘못된 것이다 — 결제 가능하지 않던 예약을 되살리지 않는다.
+     * 취소 거절은 주문이 있을 때만 온다. 주문은 PAYABLE 이후에만 생기므로 결제 가능한 적이 없는 예약
+     * (PENDING_SYNC 에서 시작한 취소)이 거절되면 어딘가 잘못된 것이다 — 그 예약을 PAYABLE 로 만들지 않는다.
      */
-    private void requireCancelStartedFromPayable(Long preorderId) {
-        PreorderStatus cancelStartedFrom = events
-                .findFirstByPreorderIdAndToStatusOrderByEventSequenceDesc(preorderId, PreorderStatus.CANCELING)
-                .map(PreorderEvent::getFromStatus)
-                .orElse(null);
-        if (cancelStartedFrom != PreorderStatus.PAYABLE) {
+    private void revertToPayable(Long preorderId, PreorderStatus from, PreorderStatus to, Instant now) {
+        if (preorders.revertToPayable(preorderId, now, from, to) != 1) {
             throw new IllegalStateException(
-                    "PAYABLE 에서 시작하지 않은 취소는 거절될 수 없다: preorderId=" + preorderId + ", from=" + cancelStartedFrom);
+                    "결제 가능한 적이 없는 예약의 취소는 거절될 수 없다: preorderId=" + preorderId);
         }
     }
 
