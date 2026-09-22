@@ -177,6 +177,18 @@ class AdmissionTicketVerifierTest {
         }
 
         @Test
+        void 시각_오차가_창보다_크면_오차가_끝날_때까지_이전_키를_받는다() {
+            // 만료 01:02:00 + 오차 60초 = 01:03:00 까지 유효. ttl + window 로 닫으면 01:02:37 에 끊긴다.
+            AdmissionTicketVerifier verifier = new AdmissionTicketVerifier(
+                    new AdmissionTicketProperties(CURRENT, List.of(PREVIOUS), rolloutEndsAt,
+                            Duration.ofSeconds(AdmissionTickets.TTL_SECONDS),
+                            Duration.ofSeconds(AdmissionTickets.WINDOW_SECONDS), Duration.ofSeconds(60)),
+                    Clock.fixed(EXPIRES_AT.plusSeconds(50), ZoneOffset.UTC));
+
+            assertThat(verifier.verify(VECTOR_PREVIOUS_KEY, PRODUCT_ID, CUSTOMER_ID)).isPresent();
+        }
+
+        @Test
         void 교체_시각이_없으면_이전_키를_받지_않는다() {
             assertThat(verifierAt(ISSUED_AT).verify(VECTOR_PREVIOUS_KEY, PRODUCT_ID, CUSTOMER_ID)).isEmpty();
         }

@@ -7,6 +7,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -46,7 +47,11 @@ public class AdmissionTicketVerifier {
 
     private final byte[] secret;
     private final List<byte[]> previous;
-    /** 이전 키를 여기까지만 받는다 — 교체 배포 끝 + 그 키로 낸 마지막 입장권의 수명. */
+    /**
+     * 이전 키를 여기까지만 받는다. 이전 키로 낸 마지막 입장권(교체 배포 끝에 발급)은 만료가 교체 끝 + ttl 을 넘지 않고,
+     * 만료 판정이 clockSkew 만큼 더 받아 주므로 교체 끝 + ttl + clockSkew 까지 유효할 수 있다.
+     * window 와 clockSkew 중 큰 쪽을 더한다(게이트웨이 기준 ttl + window 보다 일찍 닫지 않게).
+     */
     private final Instant acceptPreviousUntil;
     private final long clockSkewSeconds;
     private final Clock clock;
@@ -56,7 +61,8 @@ public class AdmissionTicketVerifier {
         this.secret = properties.secret().getBytes(StandardCharsets.UTF_8);
         this.previous = properties.previous().stream().map(key -> key.getBytes(StandardCharsets.UTF_8)).toList();
         this.acceptPreviousUntil = properties.rolloutEndsAt() == null ? null
-                : properties.rolloutEndsAt().plus(properties.ttl()).plus(properties.window());
+                : properties.rolloutEndsAt().plus(properties.ttl())
+                        .plus(max(properties.window(), properties.clockSkew()));
         this.clockSkewSeconds = properties.clockSkew().toSeconds();
         this.clock = clock;
     }
@@ -116,6 +122,10 @@ public class AdmissionTicketVerifier {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    private static Duration max(Duration a, Duration b) {
+        return a.compareTo(b) >= 0 ? a : b;
     }
 
     /** Mac 은 스레드 안전하지 않아 호출마다 만든다. */
