@@ -4,12 +4,11 @@ import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.common.ErrorCode;
 import com.grandis.nova.preorder.PreorderErrorCode;
 import com.grandis.nova.preorder.catalog.CatalogClient;
-import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.PreorderLedger;
-import com.grandis.nova.preorder.preorder.PreorderTrigger;
 import com.grandis.nova.preorder.support.AdmissionTickets;
 import com.grandis.nova.preorder.support.CatalogStubs;
 import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.PreorderCancels;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -195,10 +194,7 @@ class PreorderAcceptConcurrencyTest {
     void 취소가_끝난_뒤_다시_신청하면_새_순번을_받는다() throws Exception {
         Long customerId = fixtures.customer();
         AcceptResult first = acceptByCustomer(customerId, "reapply-key-1");
-        transactionTemplate.executeWithoutResult(status -> {
-            ledger.fire(first.preorder().getId(), PreorderTrigger.CANCEL_REQUESTED, EventActor.USER, null);
-            ledger.fire(first.preorder().getId(), PreorderTrigger.CANCEL_COMPLETED, EventActor.SYSTEM, null);
-        });
+        new PreorderCancels(ledger, transactionTemplate).complete(first.preorder().getId());
         String laterTicket = AdmissionTickets.issue(product.productId(), customerId,
                 Instant.now().minusSeconds(AdmissionTickets.WINDOW_SECONDS));
 
