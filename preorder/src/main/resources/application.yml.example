@@ -55,6 +55,11 @@ spring.cloud.aws:
     endpoint: http://localhost:4566
 
 nova:
+  # 대기열 입장권. 게이트웨이와 같은 비밀(Secrets Manager). 형식: gateway-auth-tokens.md 5절
+  admission-ticket:
+    secret: ${WAITING_TOKEN_SECRET}
+    previous: ${WAITING_TOKEN_PREVIOUS:}
+    rollout-ends-at: ${WAITING_TOKEN_ROLLOUT_ENDS_AT:}
   sqs:
     preorder-queue: nova-preorder
 

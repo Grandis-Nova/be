@@ -29,8 +29,12 @@ import java.lang.annotation.Target;
         "spring.flyway.schemas=shop",
         "spring.flyway.create-schemas=false",
         "spring.flyway.clean-disabled=true",
-        "spring.flyway.validate-migration-naming=true"
+        "spring.flyway.validate-migration-naming=true",
+        "nova.admission-ticket.secret=" + PreorderIntegrationTest.ADMISSION_TICKET_SECRET
 })
 @Import(MySqlContainerConfig.class)
 public @interface PreorderIntegrationTest {
+
+    /** 테스트 전용 입장권 비밀. 테스트 발급기(AdmissionTickets)가 같은 값으로 서명한다. */
+    String ADMISSION_TICKET_SECRET = "nova-test-current-secret-0123456789";
 }
