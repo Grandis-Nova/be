@@ -1,12 +1,10 @@
 package com.grandis.nova.preorder.api;
 
 import com.grandis.nova.preorder.accept.AcceptResult;
-import com.grandis.nova.preorder.campaign.ShipmentBatch;
 import com.grandis.nova.preorder.preorder.Preorder;
 import com.grandis.nova.preorder.preorder.PreorderStatus;
 
 import java.time.Instant;
-import java.time.LocalDate;
 
 /** 접수 응답(openapi PreorderAccepted). 재전송이면 기존 예약의 현재 값이라 status 가 PENDING_SYNC 가 아닐 수 있다. */
 public record PreorderAcceptedResponse(
@@ -26,20 +24,5 @@ public record PreorderAcceptedResponse(
         return new PreorderAcceptedResponse(preorder.getPreorderToken(), preorder.getStatus(),
                 preorder.getQueuePosition(), ShipmentBatchResponse.from(result.shipmentBatch()),
                 preorder.getCreatedAt(), STATUS_URL + preorder.getPreorderToken(), result.replayed());
-    }
-
-    /** openapi ShipmentBatch. positionTo 가 null 이면 상한 없는 마지막 차수. */
-    public record ShipmentBatchResponse(
-            int batchNumber,
-            long positionFrom,
-            Long positionTo,
-            LocalDate estimatedShipStart,
-            LocalDate estimatedShipEnd
-    ) {
-
-        static ShipmentBatchResponse from(ShipmentBatch batch) {
-            return new ShipmentBatchResponse(batch.getBatchNumber(), batch.getPositionFrom(), batch.getPositionTo(),
-                    batch.getEstimatedShipStart(), batch.getEstimatedShipEnd());
-        }
     }
 }

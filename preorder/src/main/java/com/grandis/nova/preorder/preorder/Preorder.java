@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -26,6 +27,9 @@ import java.time.Instant;
 @Entity
 @Table(name = "preorders")
 public class Preorder extends BaseEntity {
+
+    /** 결제 기한. payable_from 부터 이만큼이다(ERD: 연장 없음). */
+    public static final Duration PAYMENT_WINDOW = Duration.ofHours(24);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -98,6 +102,16 @@ public class Preorder extends BaseEntity {
         this.unitPriceSnapshot = draft.unitPriceSnapshot();
         this.status = PreorderStatus.PENDING_SYNC;
         this.eventSequence = PreorderEvent.FIRST_SEQUENCE;
+    }
+
+    /** 결제 기한 — 결제 가능해진 시각부터 24시간. 연장은 없다. PAYABLE 이 아니면 없다. */
+    public Instant paymentDueAt() {
+        return status == PreorderStatus.PAYABLE && payableFrom != null ? payableFrom.plus(PAYMENT_WINDOW) : null;
+    }
+
+    /** 취소 버튼을 보일지. 배송 시작 여부는 취소 요청 때 order 에 다시 묻는다. */
+    public boolean isCancelable() {
+        return status == PreorderStatus.PENDING_SYNC || status == PreorderStatus.PAYABLE;
     }
 
     /** 관리자 전용 메모. 이력을 남기지 않는다. */

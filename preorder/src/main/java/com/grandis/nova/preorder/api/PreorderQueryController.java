@@ -1,0 +1,53 @@
+package com.grandis.nova.preorder.api;
+
+import com.grandis.nova.common.CursorPage;
+import com.grandis.nova.common.web.ApiResponse;
+import com.grandis.nova.preorder.preorder.PreorderStatus;
+import com.grandis.nova.preorder.query.PreorderQueryService;
+import com.grandis.nova.preorder.web.CurrentCustomerId;
+import com.grandis.nova.preorder.web.CurrentViewer;
+import com.grandis.nova.preorder.web.Viewer;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/** 내 예약 조회. 목록은 본인 것만, 상세 · 이력은 본인과 관리자만 본다. */
+@RestController
+@RequestMapping("/api/v1/preorders")
+public class PreorderQueryController {
+
+    private final PreorderQueryService queryService;
+
+    public PreorderQueryController(PreorderQueryService queryService) {
+        this.queryService = queryService;
+    }
+
+    @GetMapping
+    public ApiResponse<CursorPage<PreorderSummaryResponse>> list(
+            @CurrentCustomerId Long customerId,
+            @RequestParam(required = false) PreorderStatus status,
+            @RequestParam(required = false) Long productId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "" + PageSizes.DEFAULT) int size) {
+        return ApiResponse.ok(queryService.findMine(customerId, status, productId, cursor, PageSizes.require(size))
+                .map(PreorderSummaryResponse::from));
+    }
+
+    @GetMapping("/{preorderId}")
+    public ApiResponse<PreorderDetailResponse> get(@CurrentViewer Viewer viewer, @PathVariable String preorderId) {
+        return ApiResponse.ok(PreorderDetailResponse.from(queryService.findOne(viewer, preorderId)));
+    }
+
+    @GetMapping("/{preorderId}/history")
+    public ApiResponse<Items<PreorderEventResponse>> history(@CurrentViewer Viewer viewer,
+                                                             @PathVariable String preorderId) {
+        List<PreorderEventResponse> items = queryService.findHistory(viewer, preorderId).stream()
+                .map(PreorderEventResponse::from)
+                .toList();
+        return ApiResponse.ok(new Items<>(items));
+    }
+}

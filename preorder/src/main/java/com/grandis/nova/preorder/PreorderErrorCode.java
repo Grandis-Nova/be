@@ -11,12 +11,14 @@ public enum PreorderErrorCode implements ErrorCode {
     ADMISSION_TICKET_REQUIRED(400, "대기열 입장권이 필요합니다."),
     ADMISSION_TICKET_INVALID(403, "대기열에 다시 입장해 주세요."),
     MEMBER_NOT_FOUND(404, "회원을 찾을 수 없습니다."),
+    PREORDER_NOT_FOUND(404, "예약을 찾을 수 없습니다."),
     PRODUCT_NOT_FOUND(404, "상품을 찾을 수 없습니다."),
     PRODUCT_OPTION_NOT_FOUND(404, "옵션을 찾을 수 없습니다."),
     SALE_NOT_OPEN(409, "아직 예약 오픈 전입니다."),
     SALE_CLOSED(409, "사전예약이 마감되었습니다."),
     ACTIVE_PREORDER_EXISTS(409, "이미 접수된 예약이 있습니다."),
     ADMISSION_TICKET_USED(409, "대기열에 다시 입장해 주세요."),
+    PREORDER_FIELD_IMMUTABLE(409, "내부 메모 외에는 바꿀 수 없습니다."),
     KEY_PAYLOAD_MISMATCH(422, "이전 요청과 내용이 다릅니다. 새 신청으로 다시 시도해 주세요.");
 
     private final int status;

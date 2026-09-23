@@ -1,5 +1,6 @@
 package com.grandis.nova.preorder.campaign;
 
+import com.grandis.nova.preorder.preorder.Preorder;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,6 +11,16 @@ import java.util.Optional;
 public interface ShipmentBatchRepository extends JpaRepository<ShipmentBatch, Long> {
 
     List<ShipmentBatch> findByProductIdOrderByBatchNumber(Long productId);
+
+    /**
+     * 예약에 배정된 차수. 접수 때 정해지고 바뀌지 않으므로 없을 수 없다 —
+     * 없으면 오픈 전 검사를 지나친 데이터다.
+     */
+    default ShipmentBatch getAssigned(Preorder preorder) {
+        return findById(preorder.getShipmentBatchId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "예약의 배송 차수가 없다: preorderId=" + preorder.getId()));
+    }
 
     /**
      * 순번이 속한 차수. 구간이 겹치지 않는다는 것은 오픈 전 검사가 보장한다(ERD: UNIQUE 는 "최대 1개" 만 보장).

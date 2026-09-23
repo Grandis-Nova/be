@@ -17,6 +17,12 @@ public interface PreorderSyncJobRepository extends JpaRepository<PreorderSyncJob
 
     Optional<PreorderSyncJob> findByPreorderIdAndJobType(Long preorderId, SyncJobType jobType);
 
+    /** 예약 하나의 작업(REGISTER · CANCEL 최대 1건씩). 관리자 상세에서 쓴다. */
+    List<PreorderSyncJob> findByPreorderIdOrderByJobType(Long preorderId);
+
+    /** 목록 화면용. 여러 예약의 작업을 한 번에 읽는다(행마다 다시 묻지 않는다). */
+    List<PreorderSyncJob> findByPreorderIdInAndJobType(Collection<Long> preorderIds, SyncJobType jobType);
+
     /**
      * 예약 취소 시작 트랜잭션에서 아직 성공하지 않은 REGISTER 작업을 무효화한다(DEAD_LETTER 포함).
      * 실행 중인 worker 는 리스 토큰 조건부 완료가 0행이 되어 결과를 반영하지 못한다.

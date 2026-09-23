@@ -128,10 +128,7 @@ public class PreorderAcceptTransaction {
         if (!different.isEmpty()) {
             throw new BusinessException(PreorderErrorCode.KEY_PAYLOAD_MISMATCH, Map.of("fields", different));
         }
-        ShipmentBatch batch = batches.findById(existing.getShipmentBatchId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "예약의 배송 차수가 없다: preorderId=" + existing.getId()));
-        return new AcceptResult(existing, batch, true);
+        return new AcceptResult(existing, batches.getAssigned(existing), true);
     }
 
     private static OptionSnapshot requireOnSale(AcceptCommand command, Optional<ProductCatalog> product) {
