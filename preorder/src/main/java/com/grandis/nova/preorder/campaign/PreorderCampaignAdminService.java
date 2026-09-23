@@ -5,6 +5,7 @@ import com.grandis.nova.preorder.PreorderErrorCode;
 import com.grandis.nova.preorder.catalog.CatalogReader;
 import com.grandis.nova.preorder.catalog.ProductCatalog;
 import com.grandis.nova.preorder.web.ValidationFailures;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,11 +40,20 @@ public class PreorderCampaignAdminService {
                 .orElseThrow(() -> new BusinessException(PreorderErrorCode.PRODUCT_NOT_FOUND));
     }
 
-    /** 없으면 만들고 있으면 바꾼다. 회차 행의 주인은 preorder 다 — catalog 는 상품 · 옵션만 만든다. */
+    /**
+     * 없으면 만들고 있으면 바꾼다. 회차 행의 주인은 preorder 다 — catalog 는 상품 · 옵션만 만든다.
+     *
+     * 둘이 동시에 처음 만들면 한쪽이 PK 충돌로 롤백된다. 실패한 트랜잭션은 이어 쓸 수 없으므로
+     * 새 트랜잭션에서 한 번 더 한다 — 그때는 행이 있으니 일정 변경으로 끝난다.
+     */
     public PreorderCampaign upsertCampaign(Long productId, Instant opensAt, Instant closesAt) {
         requirePeriod(opensAt, closesAt);
         requirePreorderProduct(productId);
-        return writer.upsert(productId, opensAt, closesAt);
+        try {
+            return writer.upsert(productId, opensAt, closesAt);
+        } catch (DataIntegrityViolationException e) {
+            return writer.upsert(productId, opensAt, closesAt);
+        }
     }
 
     @Transactional(readOnly = true)
