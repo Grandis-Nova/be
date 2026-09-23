@@ -169,7 +169,8 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.displayName").value("홍길동"))
                 .andExpect(jsonPath("$.data.role").value("USER"))
-                .andExpect(jsonPath("$.data.sessionToken").doesNotExist());   // api-spec GET /session data 는 {displayName, role} 둘
+                .andExpect(jsonPath("$.data.profileComplete").value(false))   // 가입 직후라 아직 안 채웠다
+                .andExpect(jsonPath("$.data.sessionToken").doesNotExist());   // GET /session 에 토큰은 없다
         mvc.perform(get("/api/v1/session"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
