@@ -24,6 +24,10 @@ dependencies {
 }
 
 tasks.named('test') {
-    // 모듈 작업 디렉터리에 기대지 않고 절대 경로로 넘긴다.
-    systemProperty 'nova.migrations-path', rootProject.file('flyway-project/migrations').absolutePath
+    def migrations = rootProject.file('flyway-project/migrations')
+    // 시험이 읽는 것을 입력으로 선언한다. 안 하면 마이그레이션만 고쳤을 때 test 가 UP-TO-DATE 로 안 돌고,
+    // ddl-auto=validate 가 바뀐 스키마와 대조되지 않은 채 초록이 나온다.
+    inputs.dir(migrations).withPathSensitivity(PathSensitivity.RELATIVE).withPropertyName('migrations')
+    // 경로는 실행 시점에 넘긴다. 절대 경로를 systemProperty 로 박으면 기계마다 달라 빌드 캐시가 안 맞는다.
+    jvmArgumentProviders.add({ ["-Dnova.migrations-path=${migrations.absolutePath}".toString()] } as CommandLineArgumentProvider)
 }

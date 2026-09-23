@@ -1,5 +1,6 @@
 package com.grandis.nova.member;
 
+import com.grandis.nova.member.support.Concurrently;
 import com.grandis.nova.member.support.MemberIntegrationTest;
 import com.grandis.nova.member.support.MemberTestContext;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -145,23 +146,13 @@ class AuthFlowIntegrationTest {
             gate.await(10, TimeUnit.SECONDS);
             return new KakaoUserInfo(kakaoId, "홍길동", null);
         });
-        ExecutorService pool = Executors.newFixedThreadPool(n);
-        CountDownLatch start = new CountDownLatch(1);
-        java.util.List<Future<KakaoLoginService.LoginResult>> results = new java.util.ArrayList<>();
-        try {
-            for (int i = 0; i < n; i++) {
-                results.add(pool.submit(() -> {
-                    start.await();
-                    return loginService.login("c", REDIRECT, com.grandis.nova.member.auth.application.ClientInfo.UNKNOWN);
-                }));
-            }
-            start.countDown();
-            for (Future<KakaoLoginService.LoginResult> f : results) {
-                assertThat(f.get(10, TimeUnit.SECONDS).displayName()).isEqualTo("홍길동");
-            }
-        } finally {
-            pool.shutdownNow();
-        }
+        java.util.List<Concurrently.Outcome<KakaoLoginService.LoginResult>> results = Concurrently.run(n,
+                i -> () -> loginService.login("c", REDIRECT, com.grandis.nova.member.auth.application.ClientInfo.UNKNOWN));
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.error()).isNull();
+            assertThat(r.value().displayName()).isEqualTo("홍길동");
+        });
         assertThat(customers.findAll().stream().filter(c -> c.getKakaoId().equals(kakaoId)).count()).isEqualTo(1);
         // catch (DataIntegrityViolationException) 에 들어간 횟수. 0 이면 직렬화돼서 분기를 안 밟은 것이고 이 시험은 실측이 아니다
         long lostRaces = output.getOut().lines().filter(l -> l.contains("customers insert lost the race on kakao_id")).count();

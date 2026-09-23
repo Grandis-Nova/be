@@ -1,5 +1,6 @@
 package com.grandis.nova.member.auth.infrastructure.db;
 
+import com.grandis.nova.member.support.Concurrently;
 import com.grandis.nova.member.support.MemberIntegrationTest;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -218,33 +219,16 @@ class RefreshTokenDbStoreTest {
         UUID sessionId = UUID.randomUUID();
         String raw = login(customerId, sessionId);
         int n = 8;
-        ExecutorService pool = Executors.newFixedThreadPool(n);
-        CountDownLatch start = new CountDownLatch(1);
-        List<Callable<Rotation>> jobs = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            jobs.add(() -> {
-                start.await(10, TimeUnit.SECONDS);
-                return store.rotate(raw, RefreshTokens.newToken(), CLIENT);
-            });
-        }
-        List<Future<Rotation>> futures = new ArrayList<>();
-        try {
-            for (Callable<Rotation> job : jobs) {
-                futures.add(pool.submit(job));
-            }
-            start.countDown();
-            List<Rotation.Status> outcomes = new ArrayList<>();
-            for (Future<Rotation> f : futures) {
-                outcomes.add(f.get(30, TimeUnit.SECONDS).status());
-            }
-            // 하나만 통과한다. 진 쪽 중 첫 번째는 "이미 교체됨"(REUSED)을 보고 체인을 끊고, 그 뒤에 잠금을 얻은 쪽들은
-            // 이미 끊긴 행을 보므로 REVOKED 다. 둘 다 401 로 끝나는 같은 사건의 앞뒤다.
-            assertThat(outcomes).filteredOn(s -> s == Rotation.Status.ROTATED).hasSize(1);
-            assertThat(outcomes).filteredOn(s -> s == Rotation.Status.REUSED).isNotEmpty();
-            assertThat(outcomes).allMatch(s -> s == Rotation.Status.ROTATED || s == Rotation.Status.REUSED || s == Rotation.Status.REVOKED);
-        } finally {
-            pool.shutdownNow();
-        }
+        List<Concurrently.Outcome<Rotation>> results =
+                Concurrently.run(n, i -> () -> store.rotate(raw, RefreshTokens.newToken(), CLIENT));
+
+        assertThat(results).allSatisfy(r -> assertThat(r.error()).isNull());
+        List<Rotation.Status> outcomes = results.stream().map(r -> r.value().status()).toList();
+        // 하나만 통과한다. 진 쪽 중 첫 번째는 "이미 교체됨"(REUSED)을 보고 체인을 끊고, 그 뒤에 잠금을 얻은 쪽들은
+        // 이미 끊긴 행을 보므로 REVOKED 다. 둘 다 401 로 끝나는 같은 사건의 앞뒤다.
+        assertThat(outcomes).filteredOn(s -> s == Rotation.Status.ROTATED).hasSize(1);
+        assertThat(outcomes).filteredOn(s -> s == Rotation.Status.REUSED).isNotEmpty();
+        assertThat(outcomes).allMatch(s -> s == Rotation.Status.ROTATED || s == Rotation.Status.REUSED || s == Rotation.Status.REVOKED);
         // 진 쪽들이 재사용으로 판정해 체인을 끊었다 — 이긴 쪽의 새 토큰도 함께 죽는다(정상 동작, RFC 9700)
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL",
                 Integer.class, sessionId.toString())).isZero();

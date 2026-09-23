@@ -3,6 +3,7 @@ package com.grandis.nova.member.auth.infrastructure.redis;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.grandis.nova.member.support.Concurrently;
 import com.grandis.nova.member.support.Containers;
 import com.grandis.nova.common.security.AuthRedisKeys;
 import com.grandis.nova.common.security.RevocationRedisChecker;
@@ -131,27 +132,11 @@ class RedisStoresTest {
             UUID current = UUID.randomUUID();
             refreshStore.save(sid, current, REFRESH);
             int n = 8;
-            ExecutorService pool = Executors.newFixedThreadPool(n);
-            CountDownLatch start = new CountDownLatch(1);
-            List<Future<Boolean>> results = new java.util.ArrayList<>();
-            try {
-                for (int i = 0; i < n; i++) {
-                    results.add(pool.submit(() -> {
-                        start.await();
-                        return refreshStore.rotate(sid, current, UUID.randomUUID(), REFRESH);
-                    }));
-                }
-                start.countDown();
-                long wins = 0;
-                for (Future<Boolean> f : results) {
-                    if (f.get(5, TimeUnit.SECONDS)) {
-                        wins++;
-                    }
-                }
-                assertThat(wins).isEqualTo(1);
-            } finally {
-                pool.shutdownNow();
-            }
+            List<Concurrently.Outcome<Boolean>> results =
+                    Concurrently.run(n, i -> () -> refreshStore.rotate(sid, current, UUID.randomUUID(), REFRESH));
+
+            assertThat(results).allSatisfy(r -> assertThat(r.error()).isNull());
+            assertThat(results).filteredOn(r -> r.value()).hasSize(1);
         }
 
         @Test
