@@ -1,5 +1,8 @@
 package com.grandis.nova.member;
 
+import com.grandis.nova.member.support.Concurrently;
+import com.grandis.nova.member.support.MemberIntegrationTest;
+import com.grandis.nova.member.support.MemberTestContext;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -29,7 +32,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,12 +39,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.FilterChainProxy;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -51,52 +49,19 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * 첫 로그인 → customers INSERT + 토큰 / 두 번째 → INSERT 없음 / 동시 첫 로그인 2개 → 행 1개 / 재발급 / 로그아웃 후 재발급 → 401.
- * 실제 MySQL(localhost:3306, shop, nova/nova-local)·실제 Redis(6379). 카카오만 모킹. 둘 중 하나라도 없으면 skip.
+ * 실제 MySQL·Redis(컨테이너). 카카오만 모킹.
  * ddl-auto=validate 로 Customer 엔티티가 DDL 과 맞는지 컨텍스트 기동에서 확인된다.
  */
-@SpringBootTest(classes = MemberApplication.class, properties = {
-        "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8",
-        "spring.datasource.username=nova",
-        "spring.datasource.password=nova-local",
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
-        "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.jpa.properties.hibernate.jdbc.time_zone=UTC",
-        "spring.jpa.open-in-view=false",
-        "spring.data.redis.host=localhost",
-        "spring.data.redis.port=6379",
-        "spring.data.redis.timeout=300ms",
-        "spring.data.redis.connect-timeout=200ms",
-        "jwt.issuer=nova-test",
-        "jwt.access-token-validity=1h",
-        "jwt.refresh-token-validity=14d",
-        "kakao.client-id=cid",
-        "kakao.client-secret=csecret",
-        "kakao.token-uri=https://kauth.kakao.com/oauth/token",
-        "kakao.user-info-uri=https://kapi.kakao.com/v2/user/me",
-        "kakao.allowed-redirect-uris=http://localhost:3000/login/kakao/callback",
-        "auth.refresh.allowed-origins=http://localhost:3000",
-        "admin.username=admin",
-        "auth.cookie.secure=false"
-})
+@MemberIntegrationTest
 @ExtendWith(OutputCaptureExtension.class)
 @DisplayName("member 통합 (실제 MySQL·Redis, 카카오 모킹)")
-class MemberIntegrationTest {
+class AuthFlowIntegrationTest {
 
-    static final String ADMIN_PASSWORD = "correct horse battery staple";
+    static final String ADMIN_PASSWORD = MemberTestContext.ADMIN_PASSWORD;
     static final String REDIRECT = "http://localhost:3000/login/kakao/callback";
     static final String ORIGIN = "http://localhost:3000";
 
-    @DynamicPropertySource
-    static void adminHash(DynamicPropertyRegistry registry) {
-        registry.add("admin.password-hash", () -> new BCryptPasswordEncoder(12).encode(ADMIN_PASSWORD));   // cost 12 이상만 바인딩된다
-        TestKeys.register(registry);
-    }
 
-    @BeforeAll
-    static void requireInfra() {
-        TestInfra.requirePort(3306, "MySQL");
-        TestInfra.requirePort(6379, "Redis");
-    }
 
     @Autowired WebApplicationContext context;
     @Autowired FilterChainProxy springSecurityFilterChain;
@@ -181,23 +146,13 @@ class MemberIntegrationTest {
             gate.await(10, TimeUnit.SECONDS);
             return new KakaoUserInfo(kakaoId, "홍길동", null);
         });
-        ExecutorService pool = Executors.newFixedThreadPool(n);
-        CountDownLatch start = new CountDownLatch(1);
-        java.util.List<Future<KakaoLoginService.LoginResult>> results = new java.util.ArrayList<>();
-        try {
-            for (int i = 0; i < n; i++) {
-                results.add(pool.submit(() -> {
-                    start.await();
-                    return loginService.login("c", REDIRECT, com.grandis.nova.member.auth.application.ClientInfo.UNKNOWN);
-                }));
-            }
-            start.countDown();
-            for (Future<KakaoLoginService.LoginResult> f : results) {
-                assertThat(f.get(10, TimeUnit.SECONDS).displayName()).isEqualTo("홍길동");
-            }
-        } finally {
-            pool.shutdownNow();
-        }
+        java.util.List<Concurrently.Outcome<KakaoLoginService.LoginResult>> results = Concurrently.run(n,
+                i -> () -> loginService.login("c", REDIRECT, com.grandis.nova.member.auth.application.ClientInfo.UNKNOWN));
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.error()).isNull();
+            assertThat(r.value().displayName()).isEqualTo("홍길동");
+        });
         assertThat(customers.findAll().stream().filter(c -> c.getKakaoId().equals(kakaoId)).count()).isEqualTo(1);
         // catch (DataIntegrityViolationException) 에 들어간 횟수. 0 이면 직렬화돼서 분기를 안 밟은 것이고 이 시험은 실측이 아니다
         long lostRaces = output.getOut().lines().filter(l -> l.contains("customers insert lost the race on kakao_id")).count();

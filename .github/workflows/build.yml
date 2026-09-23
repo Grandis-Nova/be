@@ -48,9 +48,10 @@ jobs:
       matrix:
         module: ${{ fromJSON(needs.graph.outputs.modules) }}
     name: test ${{ matrix.module }}
-    # member · common:security 의 통합 테스트는 실제 MySQL(127.0.0.1:3306, nova/nova-local)·Redis(6379) 에 붙는다.
-    # 서비스가 없으면 그 테스트들은 skip 이 아니라 실패한다(TestInfra — CI 환경변수가 있으면 AssertionError).
-    # 초록인데 테스트가 안 돈 상태를 막기 위해서다. 모듈마다 컨테이너가 뜨지만 안 쓰는 모듈에는 비용이 몇 초뿐이다.
+    # common:security 의 폐기 조회 테스트가 아래 Redis(6379) 에 붙는다. 서비스가 없으면 skip 이 아니라 실패한다
+    # (CI 환경변수가 있으면 AssertionError) — 초록인데 테스트가 안 돈 상태를 막기 위해서다.
+    # member 는 테스트가 Testcontainers 로 자기 MySQL·Redis 를 띄우므로 이 서비스도 아래 스키마 단계도 쓰지 않는다.
+    # 모듈마다 컨테이너가 뜨지만 안 쓰는 모듈에는 비용이 몇 초뿐이다.
     services:
       mysql:
         image: mysql:8.4

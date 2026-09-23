@@ -1,14 +1,16 @@
 package com.grandis.nova.member.auth.infrastructure.db;
 
+import com.grandis.nova.member.support.Concurrently;
+import com.grandis.nova.member.support.MemberIntegrationTest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.grandis.nova.member.MemberApplication;
-import com.grandis.nova.member.TestInfra;
 import com.grandis.nova.member.TestKeys;
 import com.grandis.nova.member.auth.application.ClientInfo;
 import com.grandis.nova.member.auth.application.RefreshTokenStore;
 import com.grandis.nova.member.auth.application.RefreshTokenStore.Rotation;
 import com.grandis.nova.member.auth.application.RefreshTokens;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -22,50 +24,29 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 회원 리프레시의 정본 저장소를 **실제 MySQL** 로 본다. 표 주석의 회전 절차가 그대로 도는지, 그리고 그 절차가
  * 동시 재발급에서도 하나만 통과시키는지를 잰다. 잠금·UNIQUE·외래키는 다른 엔진에서 다르게 동작하므로 여기서만 의미가 있다.
  */
-@SpringBootTest(classes = MemberApplication.class, properties = {
-        "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8",
-        "spring.datasource.username=nova", "spring.datasource.password=nova-local",
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
-        "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
-        "spring.jpa.properties.hibernate.jdbc.time_zone=UTC",
-        "spring.data.redis.host=localhost", "spring.data.redis.port=6379",
-        "jwt.issuer=nova-test", "jwt.access-token-validity=30m", "jwt.refresh-token-validity=14d",
-        "kakao.client-id=cid", "kakao.client-secret=csecret",
-        "kakao.token-uri=https://kauth.kakao.com/oauth/token", "kakao.user-info-uri=https://kapi.kakao.com/v2/user/me",
-        "kakao.allowed-redirect-uris=http://localhost:3000/login/kakao/callback",
-        "auth.refresh.allowed-origins=http://localhost:3000",
-        "admin.username=admin", "admin.password-hash=$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW",
-        "auth.cookie.secure=false"
-})
+@MemberIntegrationTest
 @DisplayName("refresh_tokens — 회전 절차 (실제 MySQL)")
 class RefreshTokenDbStoreTest {
 
-    @org.springframework.test.context.DynamicPropertySource
-    static void keys(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        TestKeys.register(registry);
-    }
 
-    @BeforeAll
-    static void requireDb() {
-        TestInfra.requirePort(3306, "MySQL");
-    }
 
     private static final ClientInfo CLIENT = new ClientInfo("203.0.113.9", "JUnit");
     private static final java.time.Duration FOURTEEN_DAYS = java.time.Duration.ofDays(14);
 
     @Autowired RefreshTokenStore store;
     @Autowired JdbcTemplate jdbc;
+    @Autowired RefreshTokenRepository rows;
+    @Autowired TransactionTemplate transactions;
 
     private long newCustomer() {
         String kakaoId = "k-" + UUID.randomUUID();
@@ -201,39 +182,53 @@ class RefreshTokenDbStoreTest {
     }
 
     @Test
+    @DisplayName("만료 경계: 만료 시각과 같은 초는 이미 만료다. 한 초 앞이면 회전한다")
+    void expiryBoundaryIsInclusive() {
+        // 만료 판정은 `!expiresAt.isAfter(now)` 다. 경계인 `expiresAt == now` 를 안 태우면
+        // 부등호를 한 칸 옮긴 구현도 통과한다 — 액세스 토큰의 `nbf == iat` 를 못 박은 것과 같은 이유다.
+        // 저장소의 시계를 고정해 그 순간을 정확히 만든다. 실제 시각으로는 초가 넘어가 경계를 못 맞춘다.
+        long customerId = newCustomer();
+        Instant expiry = nowSeconds().plus(1, ChronoUnit.HOURS);
+        String oneSecondEarly = expiring(customerId, expiry);
+        String atBoundary = expiring(customerId, expiry);
+
+        assertThat(rotateAt(expiry.minusSeconds(1), oneSecondEarly).status()).isEqualTo(Rotation.Status.ROTATED);
+        assertThat(rotateAt(expiry, atBoundary).status()).isEqualTo(Rotation.Status.EXPIRED);
+    }
+
+    /** 만료 시각을 지정한 행 하나. ck_refresh_expiry 가 생성 < 만료를 강제하므로 생성은 하루 전으로 둔다. */
+    private String expiring(long customerId, Instant expiresAt) {
+        String raw = RefreshTokens.newToken();
+        jdbc.update("INSERT INTO refresh_tokens(customer_id, family_id, token_hash, expires_at, created_at) VALUES (?,?,?,?,?)",
+                customerId, UUID.randomUUID().toString(), RefreshTokens.hash(raw),
+                LocalDateTime.ofInstant(expiresAt, ZoneOffset.UTC),
+                LocalDateTime.ofInstant(expiresAt.minus(1, ChronoUnit.DAYS), ZoneOffset.UTC));
+        return raw;
+    }
+
+    /** 시계를 고정한 저장소로 회전한다. 직접 만든 객체라 @Transactional 이 안 붙으므로 트랜잭션을 밖에서 연다. */
+    private Rotation rotateAt(Instant at, String presented) {
+        DbRefreshTokenStore fixed = new DbRefreshTokenStore(rows, Clock.fixed(at, ZoneOffset.UTC));
+        return transactions.execute(status -> fixed.rotate(presented, RefreshTokens.newToken(), CLIENT));
+    }
+
+    @Test
     @DisplayName("같은 원문으로 8개가 동시에 회전하면 정확히 하나만 성공한다 — 행 잠금이 직렬화하고 나머지는 재사용으로 본다")
     void concurrentRotationLetsExactlyOneThrough() throws Exception {
         long customerId = newCustomer();
         UUID sessionId = UUID.randomUUID();
         String raw = login(customerId, sessionId);
         int n = 8;
-        ExecutorService pool = Executors.newFixedThreadPool(n);
-        CountDownLatch start = new CountDownLatch(1);
-        List<Callable<Rotation>> jobs = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            jobs.add(() -> {
-                start.await(10, TimeUnit.SECONDS);
-                return store.rotate(raw, RefreshTokens.newToken(), CLIENT);
-            });
-        }
-        List<Future<Rotation>> futures = new ArrayList<>();
-        try {
-            for (Callable<Rotation> job : jobs) {
-                futures.add(pool.submit(job));
-            }
-            start.countDown();
-            List<Rotation.Status> outcomes = new ArrayList<>();
-            for (Future<Rotation> f : futures) {
-                outcomes.add(f.get(30, TimeUnit.SECONDS).status());
-            }
-            // 하나만 통과한다. 진 쪽 중 첫 번째는 "이미 교체됨"(REUSED)을 보고 체인을 끊고, 그 뒤에 잠금을 얻은 쪽들은
-            // 이미 끊긴 행을 보므로 REVOKED 다. 둘 다 401 로 끝나는 같은 사건의 앞뒤다.
-            assertThat(outcomes).filteredOn(s -> s == Rotation.Status.ROTATED).hasSize(1);
-            assertThat(outcomes).filteredOn(s -> s == Rotation.Status.REUSED).isNotEmpty();
-            assertThat(outcomes).allMatch(s -> s == Rotation.Status.ROTATED || s == Rotation.Status.REUSED || s == Rotation.Status.REVOKED);
-        } finally {
-            pool.shutdownNow();
-        }
+        List<Concurrently.Outcome<Rotation>> results =
+                Concurrently.run(n, i -> () -> store.rotate(raw, RefreshTokens.newToken(), CLIENT));
+
+        assertThat(results).allSatisfy(r -> assertThat(r.error()).isNull());
+        List<Rotation.Status> outcomes = results.stream().map(r -> r.value().status()).toList();
+        // 하나만 통과한다. 진 쪽 중 첫 번째는 "이미 교체됨"(REUSED)을 보고 체인을 끊고, 그 뒤에 잠금을 얻은 쪽들은
+        // 이미 끊긴 행을 보므로 REVOKED 다. 둘 다 401 로 끝나는 같은 사건의 앞뒤다.
+        assertThat(outcomes).filteredOn(s -> s == Rotation.Status.ROTATED).hasSize(1);
+        assertThat(outcomes).filteredOn(s -> s == Rotation.Status.REUSED).isNotEmpty();
+        assertThat(outcomes).allMatch(s -> s == Rotation.Status.ROTATED || s == Rotation.Status.REUSED || s == Rotation.Status.REVOKED);
         // 진 쪽들이 재사용으로 판정해 체인을 끊었다 — 이긴 쪽의 새 토큰도 함께 죽는다(정상 동작, RFC 9700)
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL",
                 Integer.class, sessionId.toString())).isZero();

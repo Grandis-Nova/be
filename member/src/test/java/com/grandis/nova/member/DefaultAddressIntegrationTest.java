@@ -1,5 +1,6 @@
 package com.grandis.nova.member;
 
+import com.grandis.nova.member.support.MemberIntegrationTest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -16,12 +17,10 @@ import com.grandis.nova.member.customer.Customer;
 import com.grandis.nova.member.customer.CustomerRepository;
 import java.sql.SQLException;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.http.MediaType;
@@ -35,37 +34,14 @@ import org.springframework.web.context.WebApplicationContext;
  * GET/PUT /me/default-address (api-spec F-X-01 끝). 실제 MySQL — DDL 의 ck_customer_default_address 가 여기서 실측된다.
  * 카카오 없이 회원 행을 직접 만들고 발급기로 USER 토큰을 만든다. Redis 는 필터의 폐기 조회에 쓰인다(없으면 skip).
  */
-@SpringBootTest(classes = MemberApplication.class, properties = {
-        "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8",
-        "spring.datasource.username=nova", "spring.datasource.password=nova-local",
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
-        "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
-        "spring.data.redis.host=localhost", "spring.data.redis.port=6379",
-        "jwt.issuer=nova-test",
-        "jwt.access-token-validity=1h", "jwt.refresh-token-validity=14d",
-        "kakao.client-id=cid", "kakao.client-secret=csecret",
-        "kakao.token-uri=https://kauth.kakao.com/oauth/token", "kakao.user-info-uri=https://kapi.kakao.com/v2/user/me",
-        "kakao.allowed-redirect-uris=http://localhost:3000/login/kakao/callback",
-        "auth.refresh.allowed-origins=http://localhost:3000",
-        "admin.username=admin", "admin.password-hash=$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW",
-        "auth.cookie.secure=false"
-})
+@MemberIntegrationTest
 @DisplayName("/me/default-address (실제 MySQL)")
 class DefaultAddressIntegrationTest {
 
     private static final String PATH = "/api/v1/me/default-address";
     private static final String FULL = "{\"name\":\"홍길동\",\"phone\":\"01012345678\",\"postalCode\":\"06236\",\"line1\":\"서울시 강남구 예시로 1\",\"line2\":\"101호\"}";
 
-    @org.springframework.test.context.DynamicPropertySource
-    static void keys(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        TestKeys.register(registry);
-    }
 
-    @BeforeAll
-    static void requireInfra() {
-        TestInfra.requirePort(3306, "MySQL");
-        TestInfra.requirePort(6379, "Redis");
-    }
 
     @Autowired WebApplicationContext context;
     @Autowired FilterChainProxy springSecurityFilterChain;

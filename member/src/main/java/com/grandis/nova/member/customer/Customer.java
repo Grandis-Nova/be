@@ -7,13 +7,21 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.DynamicUpdate;
 
 /**
- * shop.customers (docs/schema.sql, 팀 SQL 그대로). 칸 이름·길이는 DDL 그대로. DDL 의 name·email·phone_number·token_version 은 member 가 아직 안 읽어 매핑하지 않는다(validate 는 DDL 에만 있는 칸을 안 잡는다). ddl-auto=validate 라 어긋나면 기동이 실패한다.
- * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(닉네임 밖의 항목은 카카오 검수가 필요하다). 기본 배송지는 회원이 직접 입력한다.
+ * shop.customers (docs/schema.sql, 팀 SQL 그대로). 칸 이름·길이는 DDL 그대로이고 ddl-auto=validate 라 어긋나면 기동이 실패한다.
+ * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(닉네임 밖의 항목은 카카오 검수가 필요하다). 이름·이메일·연락처와 기본 배송지는 회원이 직접 입력한다.
+ *
+ * `@DynamicUpdate` 를 붙인 이유: 이 행에는 서로 다른 자원 둘(내 정보 · 기본 배송지)이 같이 산다. 기본 UPDATE 는 모든 칼럼을 쓰므로
+ * 두 트랜잭션이 각각 읽고 각각 바꾸면 **늦게 커밋한 쪽이 상대의 변경을 자기가 읽은 옛 값으로 되돌린다**(실측:
+ * ProfileIntegrationTest.concurrentProfileAndAddressEditsDoNotClobberEachOther 가 이 애너테이션 없이 실패한다 — 배송지 저장이 이름을 null 로 돌렸다).
+ * 바뀐 칼럼만 쓰면 두 자원이 서로를 덮지 않는다. 같은 자원을 동시에 고치면 여전히 나중 것이 이긴다 — 그건 PUT 이 통째 교체라 의도한 동작이다.
+ * `token_version` 은 아직 읽는 코드가 없어 매핑하지 않는다 — validate 는 DDL 에만 있는 칸을 안 잡는다.
  */
 @Entity
 @Table(name = "customers")
+@DynamicUpdate
 public class Customer extends BaseEntity {
 
     @Id
@@ -25,6 +33,16 @@ public class Customer extends BaseEntity {
 
     @Column(name = "display_name", nullable = false, length = 100)
     private String displayName;
+
+    /** 회원이 입력한 실명. 카카오는 검수 없이 주지 않는다. */
+    @Column(name = "name", length = 50)
+    private String name;
+
+    @Column(name = "email", length = 255)
+    private String email;
+
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
 
     @Column(name = "default_ship_to_name", length = 50)
     private String defaultShipToName;
@@ -66,6 +84,21 @@ public class Customer extends BaseEntity {
 
     static String truncateToCodePoints(String s, int max) {
         return s.codePointCount(0, s.length()) <= max ? s : s.substring(0, s.offsetByCodePoints(0, max));
+    }
+
+    /** 회원이 입력한 본인 정보. 안 채운 칸은 null 이다. */
+    public Profile profile() {
+        return new Profile(name, email, phoneNumber);
+    }
+
+    /**
+     * 세 칸을 통째로 바꾼다. 안 보낸 칸은 비운다 — 부분 갱신을 두면 "안 보냄"과 "비움"을 요청에서 구분해야 하고,
+     * 그 구분을 JSON 으로 표현하는 방법(null 과 키 없음)이 클라이언트마다 갈린다.
+     */
+    public void changeProfile(Profile profile) {
+        this.name = profile.name();
+        this.email = profile.email();
+        this.phoneNumber = profile.phoneNumber();
     }
 
     /** 기본 배송지. 미등록이면 null. 넷이 NOT NULL 이면 등록된 것이다(CHECK 가 그 외 조합을 막는다). */

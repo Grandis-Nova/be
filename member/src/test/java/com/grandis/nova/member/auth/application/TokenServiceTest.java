@@ -258,6 +258,20 @@ class TokenServiceTest {
         assertThat(claims.getValue().issuedAt()).isEqualTo(session.issuedAt());
         assertThat(claims.getValue().sessionId()).isEqualTo(session.sessionId());
         assertThat(claims.getValue().subject()).isEqualTo("101");
+        // 지금 체커는 위 셋만 읽는다. 나머지 둘은 아무도 안 보지만 거짓이면 안 된다 —
+        // 체커에 역할이나 종류를 보는 규칙이 하나 생기는 순간 폐기 판정이 조용히 빗나간다.
+        assertThat(claims.getValue().role()).isEqualTo(Role.USER);
+        assertThat(claims.getValue().type()).isEqualTo(TokenType.REFRESH);
+    }
+
+    @Test
+    @DisplayName("저장하는 시각은 초로 자른다 — 폐기 표식이 epoch 초라 정밀도가 다르면 경계가 양쪽으로 기운다")
+    void storedTimesAreTruncatedToSeconds() {
+        clock.set(NOW.plusNanos(123_456_789));
+
+        TokenService.IssuedTokens tokens = service.issue("101", Role.USER, CLIENT);
+
+        verify(refreshTokens).save(any(), eq("101"), eq(tokens.refreshToken()), eq(NOW.plus(REFRESH)), eq(CLIENT));
     }
 
     @Test

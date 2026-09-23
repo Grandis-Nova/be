@@ -3,7 +3,8 @@ package com.grandis.nova.member.auth.infrastructure.redis;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
-import com.grandis.nova.member.TestInfra;
+import com.grandis.nova.member.support.Concurrently;
+import com.grandis.nova.member.support.Containers;
 import com.grandis.nova.common.security.AuthRedisKeys;
 import com.grandis.nova.common.security.RevocationRedisChecker;
 import com.grandis.nova.common.security.Role;
@@ -34,7 +35,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 /**
  * 회전 성공 · jti 불일치 → 실패 · 키 없음 → 실패 · 동시 회전 2개 중 1개만 성공.
  * 그리고 쓰기(여기)와 읽기(common:security 의 RevocationRedisChecker)가 같은 키·같은 값 형식을 보는지 왕복으로 잰다.
- * 실제 Redis(localhost:6379). 없으면 skip. CI 에는 Redis 서비스 컨테이너가 붙어 있다.
+ * 실제 Redis(컨테이너).
  */
 @DisplayName("member Redis 저장소 (실제 Redis)")
 class RedisStoresTest {
@@ -54,20 +55,12 @@ class RedisStoresTest {
 
     @BeforeAll
     static void connect() {
-        factory = new LettuceConnectionFactory(new RedisStandaloneConfiguration("localhost", 6379),
+        factory = new LettuceConnectionFactory(
+                new RedisStandaloneConfiguration(Containers.redisHost(), Containers.redisPort()),
                 LettuceClientConfiguration.builder().commandTimeout(Duration.ofMillis(300)).build());
         factory.afterPropertiesSet();
         factory.start();
         redis = new StringRedisTemplate(factory);
-        boolean up;
-        try {
-            up = "PONG".equals(redis.execute((org.springframework.data.redis.core.RedisCallback<String>) c -> c.ping()));
-        } catch (RuntimeException e) {
-            up = false;
-        }
-        if (!up) {
-            TestInfra.unavailable("localhost:6379 에 Redis 가 없다");
-        }
         refreshStore = new RefreshTokenRedisStore(redis);
         revocationStore = new RevocationRedisStore(redis, Clock.fixed(NOW, ZoneOffset.UTC));
         checker = new RevocationRedisChecker(redis);
@@ -139,27 +132,11 @@ class RedisStoresTest {
             UUID current = UUID.randomUUID();
             refreshStore.save(sid, current, REFRESH);
             int n = 8;
-            ExecutorService pool = Executors.newFixedThreadPool(n);
-            CountDownLatch start = new CountDownLatch(1);
-            List<Future<Boolean>> results = new java.util.ArrayList<>();
-            try {
-                for (int i = 0; i < n; i++) {
-                    results.add(pool.submit(() -> {
-                        start.await();
-                        return refreshStore.rotate(sid, current, UUID.randomUUID(), REFRESH);
-                    }));
-                }
-                start.countDown();
-                long wins = 0;
-                for (Future<Boolean> f : results) {
-                    if (f.get(5, TimeUnit.SECONDS)) {
-                        wins++;
-                    }
-                }
-                assertThat(wins).isEqualTo(1);
-            } finally {
-                pool.shutdownNow();
-            }
+            List<Concurrently.Outcome<Boolean>> results =
+                    Concurrently.run(n, i -> () -> refreshStore.rotate(sid, current, UUID.randomUUID(), REFRESH));
+
+            assertThat(results).allSatisfy(r -> assertThat(r.error()).isNull());
+            assertThat(results).filteredOn(r -> r.value()).hasSize(1);
         }
 
         @Test
