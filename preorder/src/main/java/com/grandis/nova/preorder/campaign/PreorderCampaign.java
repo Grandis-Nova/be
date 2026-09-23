@@ -19,6 +19,9 @@ import java.time.Instant;
 @Table(name = "preorder_campaigns")
 public class PreorderCampaign extends BaseEntity {
 
+    /** 첫 예약이 받는 순번. */
+    static final long FIRST_QUEUE_POSITION = 1;
+
     @Id
     private Long productId;
 
@@ -34,6 +37,29 @@ public class PreorderCampaign extends BaseEntity {
     private Instant openNotifiedAt;
 
     protected PreorderCampaign() {
+    }
+
+    private PreorderCampaign(Long productId, Instant opensAt, Instant closesAt) {
+        this.productId = productId;
+        this.opensAt = opensAt;
+        this.closesAt = closesAt;
+        this.nextQueuePosition = FIRST_QUEUE_POSITION;
+    }
+
+    /** 사전예약 상품에 회차를 연다. 순번은 1번부터 시작한다. */
+    public static PreorderCampaign of(Long productId, Instant opensAt, Instant closesAt) {
+        return new PreorderCampaign(productId, opensAt, closesAt);
+    }
+
+    /** 일정 변경. 오픈 뒤에는 부르지 않는다 — 판정은 호출하는 쪽이 회차 행을 잠근 채 한다. */
+    public void reschedule(Instant opensAt, Instant closesAt) {
+        this.opensAt = opensAt;
+        this.closesAt = closesAt;
+    }
+
+    /** 지금까지 발급한 순번 수(취소 행 포함). */
+    public long issuedCount() {
+        return nextQueuePosition - FIRST_QUEUE_POSITION;
     }
 
     /** 오픈 시각 이상, 마감 시각 미만일 때 접수를 받는다. */

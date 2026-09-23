@@ -12,6 +12,9 @@ public interface ShipmentBatchRepository extends JpaRepository<ShipmentBatch, Lo
 
     List<ShipmentBatch> findByProductIdOrderByBatchNumber(Long productId);
 
+    /** 오픈 전 전체 교체에서 쓴다. 오픈 뒤에는 부르지 않는다(예약이 차수를 가리킨다). */
+    void deleteByProductId(Long productId);
+
     /**
      * 예약에 배정된 차수. 접수 때 정해지고 바뀌지 않으므로 없을 수 없다 —
      * 없으면 오픈 전 검사를 지나친 데이터다.

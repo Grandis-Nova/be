@@ -52,6 +52,23 @@ public class ShipmentBatch {
     protected ShipmentBatch() {
     }
 
+    private ShipmentBatch(Long productId, int batchNumber, long positionFrom, Long positionTo,
+                          LocalDate estimatedShipStart, LocalDate estimatedShipEnd) {
+        this.productId = productId;
+        this.batchNumber = batchNumber;
+        this.positionFrom = positionFrom;
+        this.positionTo = positionTo;
+        this.estimatedShipStart = estimatedShipStart;
+        this.estimatedShipEnd = estimatedShipEnd;
+    }
+
+    /** 오픈 전 설정에서만 만든다. 구간 규칙은 {@link ShipmentBatchPlan} 이 본다. */
+    static ShipmentBatch of(Long productId, int batchNumber, long positionFrom, Long positionTo,
+                            LocalDate estimatedShipStart, LocalDate estimatedShipEnd) {
+        return new ShipmentBatch(productId, batchNumber, positionFrom, positionTo,
+                estimatedShipStart, estimatedShipEnd);
+    }
+
     public boolean covers(long position) {
         return positionFrom <= position && (positionTo == null || position <= positionTo);
     }
