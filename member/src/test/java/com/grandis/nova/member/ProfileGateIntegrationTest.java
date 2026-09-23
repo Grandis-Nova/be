@@ -30,6 +30,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 내 정보를 다 채웠는지를 로그인·재발급·세션 조회 응답이 알려 준다(`profileComplete`).
@@ -72,14 +74,28 @@ class ProfileGateIntegrationTest {
                 .andReturn();
     }
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /**
+     * 응답에서 칸 하나를 꺼내되 **없으면 실패시킨다.** 빠진 칸은 `asBoolean()` 에서 false 로,
+     * `asString()` 에서 빈 문자열로 나온다 — 그러면 "false 여야 한다" 는 단언이 칸이 아예 빠져도 통과한다.
+     * 없음과 false 가 같은 모양으로 나오는 자리라 꺼내는 쪽에서 막는다.
+     */
+    private static JsonNode field(MvcResult result, String pointer) throws Exception {
+        String body = result.getResponse().getContentAsString();
+        JsonNode node = JSON.readTree(body).at(pointer);
+        assertThat(node.isMissingNode()).describedAs("응답에 %s 가 없다: %s", pointer, body).isFalse();
+        return node;
+    }
+
     private static String accessTokenOf(MvcResult result) throws Exception {
-        return tools.jackson.databind.json.JsonMapper.builder().build()
-                .readTree(result.getResponse().getContentAsString()).at("/data/sessionToken").asString();
+        return field(result, "/data/sessionToken").stringValue();
     }
 
     private static boolean flagOf(MvcResult result) throws Exception {
-        return tools.jackson.databind.json.JsonMapper.builder().build()
-                .readTree(result.getResponse().getContentAsString()).at("/data/profileComplete").asBoolean();
+        JsonNode node = field(result, "/data/profileComplete");
+        assertThat(node.isBoolean()).describedAs("profileComplete 는 불리언이어야 한다: %s", node).isTrue();
+        return node.booleanValue();
     }
 
     private void save(String token, String body) throws Exception {
@@ -160,8 +176,7 @@ class ProfileGateIntegrationTest {
                         .content("{\"username\":\"admin\",\"password\":\"" + MemberTestContext.ADMIN_PASSWORD + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
-        String adminAccess = tools.jackson.databind.json.JsonMapper.builder().build()
-                .readTree(r.getResponse().getContentAsString()).at("/data/sessionToken").asString();
+        String adminAccess = accessTokenOf(r);
 
         mvc.perform(get("/api/v1/session").header(JwtAuthenticationFilter.HEADER, adminAccess))
                 .andExpect(jsonPath("$.data.role").value("ADMIN"))
