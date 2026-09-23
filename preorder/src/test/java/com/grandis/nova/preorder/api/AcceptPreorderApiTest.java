@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -20,7 +19,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.HttpClientErrorException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,7 +27,6 @@ import java.util.HexFormat;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -115,7 +112,7 @@ class AcceptPreorderApiTest {
                 .andExpect(jsonPath("$.data.replayed").value(true));
 
         assertThat(nextQueuePosition()).isEqualTo(2);
-        assertThat(count("SELECT COUNT(*) FROM preorders WHERE customer_id = ?", customerId)).isEqualTo(1);
+        assertThat(fixtures.count("SELECT COUNT(*) FROM preorders WHERE customer_id = ?", customerId)).isEqualTo(1);
     }
 
     @Test
@@ -188,7 +185,7 @@ class AcceptPreorderApiTest {
         accept(customerId, product.productId(), product.optionId(), "k".repeat(65), ticket)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
-        assertThat(count("SELECT COUNT(*) FROM preorders WHERE customer_id = ?", customerId)).isZero();
+        assertThat(fixtures.count("SELECT COUNT(*) FROM preorders WHERE customer_id = ?", customerId)).isZero();
     }
 
     @Test
@@ -223,8 +220,7 @@ class AcceptPreorderApiTest {
     @Test
     void 없는_상품_판매_중지_옵션_다른_상품의_옵션은_404() throws Exception {
         Long missing = fixtures.product("PREORDER", "ACTIVE");
-        given(catalogClient.getProduct(missing)).willThrow(
-                HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", null, null, null));
+        CatalogStubs.stubNotFound(catalogClient, missing);
         accept(customerId, missing, 1L, "key-missing", ticket(missing, customerId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
@@ -374,13 +370,13 @@ class AcceptPreorderApiTest {
     }
 
     private void catalogReturns(Long productId, String saleMode, String status, Long optionId, String optionStatus) {
-        given(catalogClient.getProduct(productId)).willReturn(
-                CatalogStubs.product(productId, saleMode, status, CatalogStubs.option(optionId, optionStatus)));
+        CatalogStubs.stubProduct(catalogClient, productId, saleMode, status,
+                CatalogStubs.option(optionId, optionStatus));
     }
 
     private void catalogReturnsTwoOptions(Long productId, Long optionId, Long otherOptionId) {
-        given(catalogClient.getProduct(productId)).willReturn(CatalogStubs.preorderProduct(productId,
-                CatalogStubs.activeOption(optionId), CatalogStubs.activeOption(otherOptionId)));
+        CatalogStubs.stubPreorderProduct(catalogClient, productId,
+                CatalogStubs.activeOption(optionId), CatalogStubs.activeOption(otherOptionId));
     }
 
     private Long preorderIdOf(String preorderToken) {
@@ -390,10 +386,6 @@ class AcceptPreorderApiTest {
 
     private long nextQueuePosition() {
         return fixtures.nextQueuePosition(product.productId());
-    }
-
-    private int count(String sql, Object... args) {
-        return jdbcTemplate.queryForObject(sql, Integer.class, args);
     }
 
     private static String sha256(String token) throws Exception {

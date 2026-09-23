@@ -97,6 +97,11 @@ public class ShopFixtures {
                 """, syncJobId, attemptNumber, result, httpStatus, errorCode);
     }
 
+    /** 확인용 건수 조회. */
+    public int count(String sql, Object... args) {
+        return jdbcTemplate.queryForObject(sql, Integer.class, args);
+    }
+
     /** 회차의 다음 순번 카운터. */
     public long nextQueuePosition(Long productId) {
         return jdbcTemplate.queryForObject("SELECT next_queue_position FROM preorder_campaigns WHERE product_id = ?",
