@@ -17,7 +17,6 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
@@ -80,6 +79,7 @@ class AdminProductPreorderApiTest {
         PreorderProduct product = fixtures.openPreorderProduct();
         CatalogStubs.stubPreorderProduct(catalogClient, product.productId(), CatalogStubs.activeOption(product.optionId()));
         Instant later = Instant.now().plusSeconds(3600);
+        LocalDateTime opensAtBefore = opensAtOf(product.productId());
 
         putCampaign(product.productId(), later, later.plusSeconds(3600))
                 .andExpect(status().isConflict())
@@ -91,10 +91,7 @@ class AdminProductPreorderApiTest {
                 .andExpect(jsonPath("$.error.code").value("PRODUCT_ALREADY_OPEN"));
         assertThat(fixtures.count("SELECT COUNT(*) FROM shipment_batches WHERE product_id = ?",
                 product.productId())).as("차수는 그대로다").isEqualTo(2);
-        // DB 는 UTC 벽시계 시각을 담는다. 픽스처가 만든 회차는 이미 열려 있어야 한다.
-        assertThat(jdbcTemplate.queryForObject("SELECT opens_at FROM preorder_campaigns WHERE product_id = ?",
-                LocalDateTime.class, product.productId())).as("일정도 그대로다")
-                .isBefore(LocalDateTime.ofInstant(Instant.now(), ZoneOffset.UTC));
+        assertThat(opensAtOf(product.productId())).as("일정도 그대로다").isEqualTo(opensAtBefore);
     }
 
     @Test
@@ -114,7 +111,7 @@ class AdminProductPreorderApiTest {
     void 차수_목록에_빈_항목이_있으면_400() throws Exception {
         Long productId = preorderProduct();
         Instant opensAt = Instant.now().plusSeconds(3600);
-        putCampaign(productId, opensAt, opensAt.plusSeconds(3600));
+        putCampaign(productId, opensAt, opensAt.plusSeconds(3600)).andExpect(status().isOk());
 
         mockMvc.perform(put("/api/v1/admin/products/{id}/shipment-batches", productId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"batches\":[null]}")
@@ -157,7 +154,7 @@ class AdminProductPreorderApiTest {
     void 차수를_전체_교체하고_다시_조회한다() throws Exception {
         Long productId = preorderProduct();
         Instant opensAt = Instant.now().plusSeconds(3600);
-        putCampaign(productId, opensAt, opensAt.plusSeconds(3600));
+        putCampaign(productId, opensAt, opensAt.plusSeconds(3600)).andExpect(status().isOk());
 
         mockMvc.perform(put("/api/v1/admin/products/{id}/shipment-batches", productId)
                         .contentType(MediaType.APPLICATION_JSON).content(THREE_BATCHES)
@@ -185,7 +182,7 @@ class AdminProductPreorderApiTest {
     void 구간이_어긋나면_400_SHIPMENT_BATCH_INVALID() throws Exception {
         Long productId = preorderProduct();
         Instant opensAt = Instant.now().plusSeconds(3600);
-        putCampaign(productId, opensAt, opensAt.plusSeconds(3600));
+        putCampaign(productId, opensAt, opensAt.plusSeconds(3600)).andExpect(status().isOk());
 
         mockMvc.perform(put("/api/v1/admin/products/{id}/shipment-batches", productId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -228,6 +225,12 @@ class AdminProductPreorderApiTest {
         Long productId = fixtures.product("PREORDER", "ACTIVE");
         CatalogStubs.stubPreorderProduct(catalogClient, productId, CatalogStubs.activeOption(1L));
         return productId;
+    }
+
+    /** DB 는 UTC 벽시계 시각을 담는다. */
+    private LocalDateTime opensAtOf(Long productId) {
+        return jdbcTemplate.queryForObject("SELECT opens_at FROM preorder_campaigns WHERE product_id = ?",
+                LocalDateTime.class, productId);
     }
 
     private ResultActions putCampaign(Long productId, Instant opensAt, Instant closesAt) throws Exception {
