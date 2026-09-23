@@ -11,6 +11,7 @@ import com.grandis.nova.common.security.Role;
 import com.grandis.nova.common.security.TokenClaims;
 import com.grandis.nova.common.web.ApiResponse;
 import com.grandis.nova.member.auth.application.AdminLoginService;
+import com.grandis.nova.member.auth.application.ClientInfo;
 import com.grandis.nova.member.auth.application.KakaoLoginService;
 import com.grandis.nova.member.auth.application.TokenService;
 import com.grandis.nova.member.customer.CustomerRepository;
@@ -80,8 +81,9 @@ public class AuthController {
     }
 
     @PostMapping("/auth/kakao/callback")
-    public ResponseEntity<ApiResponse<LoginResponse>> kakaoCallback(@Valid @RequestBody KakaoCallbackRequest request) {
-        KakaoLoginService.LoginResult result = kakaoLogin.login(request.code(), request.redirectUri());
+    public ResponseEntity<ApiResponse<LoginResponse>> kakaoCallback(@Valid @RequestBody KakaoCallbackRequest request,
+                                                                     HttpServletRequest servletRequest) {
+        KakaoLoginService.LoginResult result = kakaoLogin.login(request.code(), request.redirectUri(), clientOf(servletRequest));
         return withRefreshCookie(result.tokens(), Role.USER, new LoginResponse(result.tokens().accessToken(), result.displayName(), result.role()));
     }
 
@@ -91,16 +93,18 @@ public class AuthController {
         // 쿠키는 원문으로 읽는다 — @CookieValue 의 URL 디코딩이 잘못된 값에 500 을 냈다(AuthCookies.raw)
         String userRefresh = AuthCookies.raw(request, AuthCookies.REFRESH_TOKEN);
         String adminRefresh = AuthCookies.raw(request, AuthCookies.ADMIN_REFRESH_TOKEN);
-        // 회원 쿠키가 있으면 그것을, 없으면 관리자 쿠키를. 둘 다 있으면 회원(한 브라우저에서 둘을 같이 쓰는 건 개발 중뿐이다)
+        // 회원 쿠키가 있으면 그것을, 없으면 관리자 쿠키를. 둘 다 있으면 회원(한 브라우저에서 둘을 같이 쓰는 건 개발 중뿐이다).
+        // 어느 쿠키로 왔는지가 곧 역할이다 — 회원 리프레시는 불투명 난수라 값 자체에는 주인도 역할도 적혀 있지 않다.
+        Role role = present(userRefresh) ? Role.USER : Role.ADMIN;
         String refreshToken = present(userRefresh) ? userRefresh : adminRefresh;
         if (!present(refreshToken)) {
             throw new InvalidTokenException("refresh cookie missing");
         }
-        // 실패할 수 있는 DB 조회를 회전 **앞**에 둔다. 여기서 던지면 저장소의 jti 는 그대로라 같은 쿠키로 다시 올 수 있다.
-        TokenClaims refreshClaims = provider.parse(refreshToken);
-        String displayName = displayNameOf(new AuthenticatedPrincipal(refreshClaims.subject(), refreshClaims.role()));
-        TokenService.IssuedTokens rotated = tokens.rotate(refreshToken);
-        return withRefreshCookie(rotated, refreshClaims.role(), new LoginResponse(rotated.accessToken(), displayName, refreshClaims.role()));
+        // 실패할 수 있는 DB 조회(회원 이름)를 회전 **앞**에 둔다. 여기서 던지면 리프레시가 아직 교체되지 않아 같은 쿠키로 다시 올 수 있다.
+        String subject = tokens.subjectOf(refreshToken, role);
+        String displayName = displayNameOf(new AuthenticatedPrincipal(subject, role));
+        TokenService.Rotated rotated = tokens.rotate(refreshToken, role, clientOf(request));
+        return withRefreshCookie(rotated.tokens(), role, new LoginResponse(rotated.tokens().accessToken(), displayName, role));
     }
 
     @GetMapping("/session")
@@ -115,7 +119,8 @@ public class AuthController {
         String userRefresh = AuthCookies.raw(request, AuthCookies.REFRESH_TOKEN);
         String adminRefresh = AuthCookies.raw(request, AuthCookies.ADMIN_REFRESH_TOKEN);
         Set<UUID> sessions = new LinkedHashSet<>();
-        for (String token : new String[] {accessToken, userRefresh, adminRefresh}) {
+        // 액세스·관리자 리프레시는 JWT 라 파싱하면 sid 가 나온다.
+        for (String token : new String[] {accessToken, adminRefresh}) {
             if (!present(token)) {
                 continue;
             }
@@ -125,6 +130,11 @@ public class AuthController {
                 // 만료·위조된 토큰으로도 로그아웃은 된다. 끊을 sid 를 못 알아낼 뿐이고 쿠키는 어차피 지운다.
                 log.info("logout: token ignored ({})", e.reason());
             }
+        }
+        // 회원 리프레시는 불투명 난수라 파싱할 것이 없다. 저장소에서 주인을 찾는다 — 폐기·만료된 행도 찾아 sid 를 얻는다.
+        if (present(userRefresh)) {
+            tokens.sessionOfUserRefresh(userRefresh).ifPresentOrElse(sessions::add,
+                    () -> log.info("logout: refresh cookie matches no stored token"));
         }
         boolean incomplete = false;
         for (UUID sid : sessions) {
@@ -149,13 +159,22 @@ public class AuthController {
     }
 
     @PostMapping("/admin/session")
-    public ResponseEntity<ApiResponse<AdminSessionResponse>> adminSession(@Valid @RequestBody AdminLoginRequest request) {
-        TokenService.IssuedTokens issued = adminLogin.login(request.username(), request.password());
+    public ResponseEntity<ApiResponse<AdminSessionResponse>> adminSession(@Valid @RequestBody AdminLoginRequest request,
+                                                                          HttpServletRequest servletRequest) {
+        TokenService.IssuedTokens issued = adminLogin.login(request.username(), request.password(), clientOf(servletRequest));
         return withRefreshCookie(issued, Role.ADMIN, new AdminSessionResponse(issued.accessToken(), Role.ADMIN));
     }
 
     private static boolean present(String s) {
         return s != null && !s.isBlank();
+    }
+
+    /**
+     * 리프레시 행에 남길 요청 흔적. 인증 판정에는 쓰지 않는다 — "로그인된 기기" 표시와 사고 조사용이다.
+     * 프록시 뒤에서 remoteAddr 은 로드밸런서 주소다. 실제 클라이언트 IP 를 남기려면 `server.forward-headers-strategy` 가 켜져 있어야 한다.
+     */
+    private static ClientInfo clientOf(HttpServletRequest request) {
+        return new ClientInfo(request.getRemoteAddr(), request.getHeader(HttpHeaders.USER_AGENT));
     }
 
     private <T> ResponseEntity<ApiResponse<T>> withRefreshCookie(TokenService.IssuedTokens issued, Role role, T body) {
