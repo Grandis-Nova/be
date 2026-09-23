@@ -194,7 +194,9 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
         // 재사용 탐지는 세션을 통째로 끊는다: 새 리프레시도 죽는다
-        mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(refreshCookie(rotated))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(refreshCookie(rotated)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
     }
 
     @Test
@@ -278,9 +280,11 @@ class AuthFlowIntegrationTest {
         mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(first))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
-        // 재사용을 보면 세션을 끊는다 — 방금 받은 새 쿠키도 같이 죽는다
+        // 재사용을 보면 세션을 끊는다 — 방금 받은 새 쿠키도 같이 죽는다.
+        // 상태만 보면 안 된다: 401 은 다른 사유로도 난다. 봉투의 코드까지 봐야 "폐기돼서" 임이 고정된다.
         mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(second))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
     }
 
     @Test
