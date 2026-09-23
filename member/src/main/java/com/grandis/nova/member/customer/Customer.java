@@ -9,8 +9,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * shop.customers (docs/schema.sql, 팀 SQL 그대로). 칸 이름·길이는 DDL 그대로. DDL 의 name·email·phone_number·token_version 은 member 가 아직 안 읽어 매핑하지 않는다(validate 는 DDL 에만 있는 칸을 안 잡는다). ddl-auto=validate 라 어긋나면 기동이 실패한다.
- * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(닉네임 밖의 항목은 카카오 검수가 필요하다). 기본 배송지는 회원이 직접 입력한다.
+ * shop.customers (docs/schema.sql, 팀 SQL 그대로). 칸 이름·길이는 DDL 그대로이고 ddl-auto=validate 라 어긋나면 기동이 실패한다.
+ * 카카오에서 받는 것은 kakao_id·display_name 뿐이다(닉네임 밖의 항목은 카카오 검수가 필요하다). 이름·이메일·연락처와 기본 배송지는 회원이 직접 입력한다.
+ * `token_version` 은 아직 읽는 코드가 없어 매핑하지 않는다 — validate 는 DDL 에만 있는 칸을 안 잡는다.
  */
 @Entity
 @Table(name = "customers")
@@ -25,6 +26,16 @@ public class Customer extends BaseEntity {
 
     @Column(name = "display_name", nullable = false, length = 100)
     private String displayName;
+
+    /** 회원이 입력한 실명. 카카오는 검수 없이 주지 않는다. */
+    @Column(name = "name", length = 50)
+    private String name;
+
+    @Column(name = "email", length = 255)
+    private String email;
+
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
 
     @Column(name = "default_ship_to_name", length = 50)
     private String defaultShipToName;
@@ -66,6 +77,21 @@ public class Customer extends BaseEntity {
 
     static String truncateToCodePoints(String s, int max) {
         return s.codePointCount(0, s.length()) <= max ? s : s.substring(0, s.offsetByCodePoints(0, max));
+    }
+
+    /** 회원이 입력한 본인 정보. 안 채운 칸은 null 이다. */
+    public Profile profile() {
+        return new Profile(name, email, phoneNumber);
+    }
+
+    /**
+     * 세 칸을 통째로 바꾼다. 안 보낸 칸은 비운다 — 부분 갱신을 두면 "안 보냄"과 "비움"을 요청에서 구분해야 하고,
+     * 그 구분을 JSON 으로 표현하는 방법(null 과 키 없음)이 클라이언트마다 갈린다.
+     */
+    public void changeProfile(Profile profile) {
+        this.name = profile.name();
+        this.email = profile.email();
+        this.phoneNumber = profile.phoneNumber();
     }
 
     /** 기본 배송지. 미등록이면 null. 넷이 NOT NULL 이면 등록된 것이다(CHECK 가 그 외 조합을 막는다). */
