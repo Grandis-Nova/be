@@ -92,13 +92,14 @@ class AdminPreorderQueryApiTest {
 
     @Test
     void 조건이_하나도_없어도_조회된다() throws Exception {
-        // 이 테스트만의 데이터가 아니라 스키마 전체를 보므로 건수 대신 "걸러지지 않고 나온다" 를 본다.
-        accepts.accept(customerId);
+        // 이 테스트만의 데이터가 아니라 스키마 전체를 본다. 목록이 최신순이므로 방금 만든 예약이 첫 줄이어야 한다.
+        AcceptResult accepted = accepts.accept(customerId);
 
         mockMvc.perform(get("/api/v1/admin/preorders").with(user("admin").roles("ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total", greaterThanOrEqualTo(1)))
-                .andExpect(jsonPath("$.data.items[0].preorderId").exists());
+                .andExpect(jsonPath("$.data.items[0].preorderId").value(AcceptFixtures.tokenOf(accepted)))
+                .andExpect(jsonPath("$.data.items[0].customerId").value(customerId));
     }
 
     @Test
