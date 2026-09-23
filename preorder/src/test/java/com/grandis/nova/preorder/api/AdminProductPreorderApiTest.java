@@ -16,6 +16,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
@@ -87,6 +89,38 @@ class AdminProductPreorderApiTest {
                         .with(user("admin").roles("ADMIN")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("PRODUCT_ALREADY_OPEN"));
+        assertThat(fixtures.count("SELECT COUNT(*) FROM shipment_batches WHERE product_id = ?",
+                product.productId())).as("차수는 그대로다").isEqualTo(2);
+        // DB 는 UTC 벽시계 시각을 담는다. 픽스처가 만든 회차는 이미 열려 있어야 한다.
+        assertThat(jdbcTemplate.queryForObject("SELECT opens_at FROM preorder_campaigns WHERE product_id = ?",
+                LocalDateTime.class, product.productId())).as("일정도 그대로다")
+                .isBefore(LocalDateTime.ofInstant(Instant.now(), ZoneOffset.UTC));
+    }
+
+    @Test
+    void 오픈_시각이_과거면_400() throws Exception {
+        Long productId = preorderProduct();
+        Instant past = Instant.now().minusSeconds(60);
+
+        putCampaign(productId, past, past.plusSeconds(7200))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.error.details.violations[0].field").value("opensAt"));
+        assertThat(fixtures.count("SELECT COUNT(*) FROM preorder_campaigns WHERE product_id = ?", productId))
+                .isZero();
+    }
+
+    @Test
+    void 차수_목록에_빈_항목이_있으면_400() throws Exception {
+        Long productId = preorderProduct();
+        Instant opensAt = Instant.now().plusSeconds(3600);
+        putCampaign(productId, opensAt, opensAt.plusSeconds(3600));
+
+        mockMvc.perform(put("/api/v1/admin/products/{id}/shipment-batches", productId)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"batches\":[null]}")
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
     }
 
     @Test

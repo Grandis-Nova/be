@@ -2,6 +2,7 @@ package com.grandis.nova.preorder.campaign;
 
 import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.preorder.PreorderErrorCode;
+import com.grandis.nova.preorder.web.ValidationFailures;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +34,12 @@ class PreorderCampaignWriter {
     PreorderCampaign upsert(Long productId, Instant opensAt, Instant closesAt) {
         return campaigns.findForUpdate(productId)
                 .map(campaign -> reschedule(campaign, opensAt, closesAt))
-                .orElseGet(() -> campaigns.save(PreorderCampaign.of(productId, opensAt, closesAt)));
+                .orElseGet(() -> create(productId, opensAt, closesAt));
+    }
+
+    private PreorderCampaign create(Long productId, Instant opensAt, Instant closesAt) {
+        requireFutureOpen(opensAt);
+        return campaigns.save(PreorderCampaign.of(productId, opensAt, closesAt));
     }
 
     /** 오픈 전 전체 교체. 순번이 나간 뒤에 구간을 바꾸면 그 순번의 배송 차수가 달라진다. */
@@ -49,8 +55,19 @@ class PreorderCampaignWriter {
 
     private PreorderCampaign reschedule(PreorderCampaign campaign, Instant opensAt, Instant closesAt) {
         requireBeforeOpen(campaign);
+        requireFutureOpen(opensAt);
         campaign.reschedule(opensAt, closesAt);
         return campaign;
+    }
+
+    /**
+     * 오픈 시각은 앞으로여야 한다. 지난 시각으로 열면 회차는 바로 접수를 받는데
+     * 배송 차수는 "오픈 뒤 변경 금지" 에 걸려 더 넣을 수 없다 — 접수가 배정할 차수를 못 찾는다.
+     */
+    private void requireFutureOpen(Instant opensAt) {
+        if (!opensAt.isAfter(clock.instant())) {
+            throw ValidationFailures.of("opensAt", "현재 시각보다 뒤여야 합니다.");
+        }
     }
 
     private void requireBeforeOpen(PreorderCampaign campaign) {
