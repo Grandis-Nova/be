@@ -254,6 +254,8 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("ADMIN"))
                 .andExpect(jsonPath("$.data.displayName").value(org.hamcrest.Matchers.nullValue()))
+                // 관리자는 회원 행이 없어 입력할 정보도 없다. 재발급 응답에도 그 값이 실린다 — 화면이 이 경로로도 들어온다.
+                .andExpect(jsonPath("$.data.profileComplete").value(true))
                 .andExpect(cookie().exists(AuthCookies.ADMIN_REFRESH_TOKEN));
     }
 
