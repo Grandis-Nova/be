@@ -1,5 +1,6 @@
 package com.grandis.nova.member;
 
+import com.grandis.nova.member.support.MemberIntegrationTest;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -22,11 +23,9 @@ import java.util.UUID;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.test.web.servlet.MockMvc;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -37,32 +36,11 @@ import org.springframework.web.context.WebApplicationContext;
  * 셋 다 죽은 경우 외에 한쪽만 실패하는 두 갈래를 따로 둔다 — 그래야 "하나가 실패해도 다른 하나는 시도한다" 가 시험에 잡힌다.
  * 표식을 못 심으면 액세스는 만료까지, 리프레시를 못 지우면 이미 리프레시를 가진 쪽은 14d 까지 — 감수하는 위험 상한.
  */
-@SpringBootTest(classes = MemberApplication.class, properties = {
-        "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC",
-        "spring.datasource.username=nova", "spring.datasource.password=nova-local",
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
-        "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
-        "jwt.issuer=nova-test",
-        "jwt.access-token-validity=1h", "jwt.refresh-token-validity=14d",
-        "kakao.client-id=cid", "kakao.client-secret=csecret",
-        "kakao.token-uri=https://kauth.kakao.com/oauth/token", "kakao.user-info-uri=https://kapi.kakao.com/v2/user/me",
-        "kakao.allowed-redirect-uris=http://localhost:3000/login/kakao/callback",
-        "auth.refresh.allowed-origins=http://localhost:3000",
-        "admin.username=admin", "admin.password-hash=$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW",
-        "auth.cookie.secure=false"
-})
+@MemberIntegrationTest
 @DisplayName("DELETE /session — Redis 가 죽으면 503 retryable, 쿠키는 그래도 지운다")
 class LogoutWhenRedisDownTest {
 
-    @org.springframework.test.context.DynamicPropertySource
-    static void keys(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        TestKeys.register(registry);
-    }
 
-    @BeforeAll
-    static void requireDb() {
-        TestInfra.requirePort(3306, "MySQL");
-    }
 
     @Autowired WebApplicationContext context;
     @Autowired FilterChainProxy springSecurityFilterChain;

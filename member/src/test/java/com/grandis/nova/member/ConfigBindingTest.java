@@ -9,6 +9,7 @@ import com.grandis.nova.common.security.Role;
 import com.grandis.nova.common.security.TokenType;
 import com.grandis.nova.common.web.RequestIdFilter;
 import com.grandis.nova.common.security.RevocationCheckProperties;
+import com.grandis.nova.member.support.Containers;
 import com.grandis.nova.member.auth.api.AuthCookies;
 import com.grandis.nova.member.auth.application.AdminProperties;
 import com.grandis.nova.member.auth.infrastructure.kakao.KakaoProperties;
@@ -20,7 +21,6 @@ import java.time.Duration;
 import java.util.Properties;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,16 +57,15 @@ class ConfigBindingTest {
         assertThat(props).isNotNull();
         props.forEach((k, v) -> registry.add(k.toString(), () -> v));
         // 예시의 자리표시자만 덮는다. 나머지 키·값은 예시 그대로.
-        registry.add("spring.datasource.password", () -> "nova-local");
-        registry.add("spring.datasource.url", () -> "jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8");
+        registry.add("spring.datasource.url", Containers.MYSQL::getJdbcUrl);
+        registry.add("spring.datasource.username", Containers.MYSQL::getUsername);
+        registry.add("spring.datasource.password", Containers.MYSQL::getPassword);
+        registry.add("spring.data.redis.host", Containers::redisHost);
+        registry.add("spring.data.redis.port", Containers::redisPort);
+        // 시험 클래스패스에만 있는 Flyway 를 스프링이 또 돌리지 않게 한다. 스키마는 Containers 가 이미 만들었다.
+        registry.add("spring.flyway.enabled", () -> "false");
         registry.add("admin.password-hash", () -> "$2a$12$" + "R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW");
         TestKeys.register(registry);   // 예시의 private-key 자리표시자를 시험 키로
-    }
-
-    @BeforeAll
-    static void requireInfra() {
-        TestInfra.requirePort(3306, "MySQL");
-        TestInfra.requirePort(6379, "Redis");
     }
 
     @Autowired DataSource dataSource;

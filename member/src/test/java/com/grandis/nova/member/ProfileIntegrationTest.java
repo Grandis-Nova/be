@@ -1,5 +1,6 @@
 package com.grandis.nova.member;
 
+import com.grandis.nova.member.support.MemberIntegrationTest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -12,15 +13,15 @@ import com.grandis.nova.common.security.Role;
 import com.grandis.nova.common.security.TokenType;
 import com.grandis.nova.common.web.RequestIdFilter;
 import com.grandis.nova.member.customer.Customer;
+import com.grandis.nova.member.customer.CodePointSize;
+import com.grandis.nova.member.customer.ProfileRequest;
 import com.grandis.nova.member.customer.CustomerRepository;
 import java.util.Map;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
@@ -33,37 +34,14 @@ import org.springframework.web.context.WebApplicationContext;
  * GET/PUT /me/profile — 카카오가 주지 않는 이름·이메일·연락처를 회원이 직접 입력한다. 실제 MySQL.
  * 카카오 없이 회원 행을 직접 만들고 발급기로 USER 토큰을 만든다. Redis 는 필터의 폐기 조회에 쓰인다(없으면 skip).
  */
-@SpringBootTest(classes = MemberApplication.class, properties = {
-        "spring.datasource.url=jdbc:mysql://127.0.0.1:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8",
-        "spring.datasource.username=nova", "spring.datasource.password=nova-local",
-        "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED",
-        "spring.jpa.hibernate.ddl-auto=validate", "spring.jpa.open-in-view=false",
-        "spring.data.redis.host=localhost", "spring.data.redis.port=6379",
-        "jwt.issuer=nova-test",
-        "jwt.access-token-validity=30m", "jwt.refresh-token-validity=14d",
-        "kakao.client-id=cid", "kakao.client-secret=csecret",
-        "kakao.token-uri=https://kauth.kakao.com/oauth/token", "kakao.user-info-uri=https://kapi.kakao.com/v2/user/me",
-        "kakao.allowed-redirect-uris=http://localhost:3000/login/kakao/callback",
-        "auth.refresh.allowed-origins=http://localhost:3000",
-        "admin.username=admin", "admin.password-hash=$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW",
-        "auth.cookie.secure=false"
-})
+@MemberIntegrationTest
 @DisplayName("/me/profile (실제 MySQL)")
 class ProfileIntegrationTest {
 
     private static final String PATH = "/api/v1/me/profile";
     private static final String FULL = "{\"name\":\"홍길동\",\"email\":\"hong@example.com\",\"phoneNumber\":\"010-1234-5678\"}";
 
-    @org.springframework.test.context.DynamicPropertySource
-    static void keys(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        TestKeys.register(registry);
-    }
 
-    @BeforeAll
-    static void requireInfra() {
-        TestInfra.requirePort(3306, "MySQL");
-        TestInfra.requirePort(6379, "Redis");
-    }
 
     @Autowired WebApplicationContext context;
     @Autowired FilterChainProxy springSecurityFilterChain;
@@ -191,26 +169,76 @@ class ProfileIntegrationTest {
     }
 
     @Test
-    @DisplayName("이메일은 RFC 상한(254자)까지 통과하고 그보다 길면 400. 연락처는 20자까지")
+    @DisplayName("이메일 상한은 255자다 — 255 는 통과, 256 은 400. 연락처는 20자까지")
     void emailAndPhoneBoundaries() throws Exception {
-        // 유효한 이메일의 상한은 254자다(로컬 64 + @ + 도메인, 각 라벨 63). 칸이 varchar(255)라 @CodePointSize 는 그 뒤를 받치는 그물이고
-        // 실제 상한은 형식 검사가 먼저 정한다 — 255자짜리 "유효한" 주소는 존재하지 않는다(실측: 255 는 형식에서 거절된다).
-        String longest = "a".repeat(64) + "@" + "b".repeat(63) + "." + "c".repeat(63) + "." + "d".repeat(61);
-        assertThat(longest).hasSize(254);
+        // 상한을 정하는 건 @CodePointSize(max = 255) 다. DDL 의 varchar(255) 와 같은 수다.
+        // @Email 은 형식만 본다(아래 emailFormatRuleIgnoresLength 에서 잰다) — 길이로 거절하는 쪽은 언제나 크기 규칙이다.
+        // 로컬 64 + "@" + 도메인 190(라벨 63·63·62) = 255. 라벨 상한을 지켜 형식 검사도 함께 통과한다.
+        String longest = "a".repeat(64) + "@" + "b".repeat(63) + "." + "c".repeat(63) + "." + "d".repeat(62);
+        assertThat(longest).hasSize(255);
         mvc.perform(put(PATH).header(JwtAuthenticationFilter.HEADER, userToken).contentType(MediaType.APPLICATION_JSON)
                         .content(body(null, longest, "0".repeat(20))))
                 .andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT CHAR_LENGTH(email) FROM customers WHERE id = ?", Integer.class, customer.getId()))
-                .isEqualTo(254);
+                .isEqualTo(255);
 
+        // 한 글자만 더 붙인다. 형식은 그대로 유효하고 길이만 넘는다 — 거절하는 규칙이 크기 규칙임이 이 한 쌍으로 갈린다.
+        String tooLong = longest + "d";
+        assertThat(tooLong).hasSize(256);
         mvc.perform(put(PATH).header(JwtAuthenticationFilter.HEADER, userToken).contentType(MediaType.APPLICATION_JSON)
-                        .content(body(null, "a".repeat(64) + "@" + ("b".repeat(63) + ".").repeat(3) + "c".repeat(63), null)))
+                        .content(body(null, tooLong, null)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details.violations[?(@.field == 'email')]").exists());
+        assertThat(jdbc.queryForObject("SELECT CHAR_LENGTH(email) FROM customers WHERE id = ?", Integer.class, customer.getId()))
+                .isEqualTo(255);   // 거절된 요청은 아무것도 안 바꾼다
+
         mvc.perform(put(PATH).header(JwtAuthenticationFilter.HEADER, userToken).contentType(MediaType.APPLICATION_JSON)
                         .content(body(null, null, "0".repeat(21))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details.violations[?(@.field == 'phoneNumber')]").exists());
+    }
+
+    @Test
+    @DisplayName("실측: @Email 은 전체 길이를 안 본다 — 255·256·320 모두 형식 위반 0. 상한은 @CodePointSize 만 정한다")
+    void emailFormatRuleIgnoresTotalLength() {
+        try (jakarta.validation.ValidatorFactory factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            jakarta.validation.Validator validator = factory.getValidator();
+            for (int length : new int[] {255, 256, 320}) {
+                assertThat(violatedRules(validator, emailOfLength(length)))
+                        .describedAs("%d자 주소가 어긴 규칙", length)
+                        .doesNotContain(jakarta.validation.constraints.Email.class);
+            }
+            // 그래서 256 을 거절하는 건 크기 규칙 하나다 — emailAndPhoneBoundaries 의 400 이 어디서 나오는지가 여기서 갈린다.
+            assertThat(violatedRules(validator, emailOfLength(256))).containsExactly(CodePointSize.class);
+        }
+    }
+
+    /**
+     * 총 길이가 정확히 length 인 주소. 도메인 라벨을 63자씩 끊는다 — @Email 이 보는 건 모양과 **라벨 길이**지
+     * 전체 길이가 아니라서, 라벨을 넘기면 전체 길이 때문인지 라벨 때문인지 구분이 안 된다.
+     */
+    private static String emailOfLength(int length) {
+        String local = "a".repeat(64);
+        int domainLength = length - local.length() - 1;
+        StringBuilder domain = new StringBuilder();
+        while (domain.length() < domainLength) {
+            if (!domain.isEmpty()) {
+                domain.append('.');
+            }
+            domain.append("b".repeat(Math.min(63, domainLength - domain.length())));
+        }
+        String email = local + "@" + domain;
+        assertThat(email).hasSize(length);
+        assertThat(domain.toString().split("\\.", -1)).allSatisfy(label ->
+                assertThat(label.length()).isBetween(1, 63));
+        return email;
+    }
+
+    /** 그 값이 어긴 제약 애너테이션들. 위반 메시지가 아니라 규칙 자체를 본다 — 메시지는 로캘·버전에 따라 바뀐다. */
+    private static java.util.List<Class<?>> violatedRules(jakarta.validation.Validator validator, String email) {
+        return validator.validateValue(ProfileRequest.class, "email", email).stream()
+                .<Class<?>>map(v -> v.getConstraintDescriptor().getAnnotation().annotationType())
+                .toList();
     }
 
     @Test

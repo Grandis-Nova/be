@@ -15,6 +15,10 @@ import java.util.UUID;
  *
  * 이 표에는 갱신 시각 칸이 없어 공통 BaseEntity 를 상속하지 않는다(created_at 만 있고 updated_at 이 없다).
  * `token_hash` 는 binary(32) 다 — 기본 매핑(varbinary)으로 두면 validate 가 잡으므로 칸 정의를 명시한다.
+ *
+ * Customer 와 달리 `@DynamicUpdate` 가 없다. 이 행을 고치는 경로가 모두 행 X 잠금 뒤에 있어
+ * 두 트랜잭션이 같은 행을 동시에 쓰지 못하기 때문이다(DbRefreshTokenStore.rotate 의 findByTokenHashForUpdate).
+ * 잠금 없이 이 행을 고치는 경로가 생기면 전 칼럼 UPDATE 가 남의 변경을 되돌린다 — 그때 같이 붙여야 한다.
  */
 @Entity
 @Table(name = "refresh_tokens")

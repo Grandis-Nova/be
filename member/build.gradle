@@ -13,4 +13,17 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     // JJWT 는 common:security 가 api(jjwt-api)·runtimeOnly(impl·jackson)로 들고 온다. 여기서 다시 적지 않는다 — 버전은 한 곳에서만
     runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // DB 동작(잠금 · UNIQUE 충돌 · CHECK · 조건부 UPDATE 영향 행)은 MySQL 로만 검증한다. H2 는 쓰지 않는다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-mysql'
+    // 시험 DB 는 Flyway 마이그레이션(스키마 정본)으로 만든다. 서비스는 Flyway 를 실행하지 않으므로 시험 의존으로만 둔다.
+    testImplementation 'org.flywaydb:flyway-core'
+    testRuntimeOnly 'org.flywaydb:flyway-mysql'
+}
+
+tasks.named('test') {
+    // 모듈 작업 디렉터리에 기대지 않고 절대 경로로 넘긴다.
+    systemProperty 'nova.migrations-path', rootProject.file('flyway-project/migrations').absolutePath
 }
