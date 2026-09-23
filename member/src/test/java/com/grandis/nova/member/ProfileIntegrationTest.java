@@ -199,27 +199,30 @@ class ProfileIntegrationTest {
     }
 
     @Test
-    @DisplayName("실측: @Email 은 전체 길이를 안 본다 — 255·256·320 모두 형식 위반 0. 상한은 @CodePointSize 만 정한다")
+    @DisplayName("실측: @Email 은 총 길이를 안 본다 — 로컬 64 · 도메인 250(총 315)도 형식 위반 0. 상한은 @CodePointSize 만 정한다")
     void emailFormatRuleIgnoresTotalLength() {
         try (jakarta.validation.ValidatorFactory factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
             jakarta.validation.Validator validator = factory.getValidator();
-            for (int length : new int[] {255, 256, 320}) {
-                assertThat(violatedRules(validator, emailOfLength(length)))
-                        .describedAs("%d자 주소가 어긴 규칙", length)
-                        .doesNotContain(jakarta.validation.constraints.Email.class);
-            }
-            // 그래서 256 을 거절하는 건 크기 규칙 하나다 — emailAndPhoneBoundaries 의 400 이 어디서 나오는지가 여기서 갈린다.
-            assertThat(violatedRules(validator, emailOfLength(256))).containsExactly(CodePointSize.class);
+
+            // 세 축을 다 지키면서 255 를 훌쩍 넘는 주소. 형식 검사는 이걸 통과시킨다.
+            assertThat(violatedRules(validator, validAddress(64, 250)))
+                    .describedAs("총 315자 주소가 어긴 규칙")
+                    .doesNotContain(jakarta.validation.constraints.Email.class);
+
+            // 그래서 상한을 정하는 건 크기 규칙 하나다. 255 는 통과하고 256 은 그 규칙만 어긴다.
+            assertThat(violatedRules(validator, validAddress(64, 190))).isEmpty();
+            assertThat(violatedRules(validator, validAddress(64, 191))).containsExactly(CodePointSize.class);
         }
     }
 
     /**
-     * 총 길이가 정확히 length 인 주소. 도메인 라벨을 63자씩 끊는다 — @Email 이 보는 건 모양과 **라벨 길이**지
-     * 전체 길이가 아니라서, 라벨을 넘기면 전체 길이 때문인지 라벨 때문인지 구분이 안 된다.
+     * 형식 검사가 통과시키는 주소 하나. 검사가 보는 축은 셋이다 — 로컬 64 이하 · 도메인 255 이하 · 도메인 라벨 63 이하.
+     * 셋을 여기서 단언한다: 하나라도 넘으면 "총 길이를 안 본다" 를 증명하던 시험이 조용히 다른 축을 증명하게 된다.
+     * 같은 총 길이라도 로컬과 도메인에 어떻게 나누느냐로 판정이 갈리므로, 수가 아니라 이 둘을 입력으로 받는다.
      */
-    private static String emailOfLength(int length) {
-        String local = "a".repeat(64);
-        int domainLength = length - local.length() - 1;
+    private static String validAddress(int localLength, int domainLength) {
+        assertThat(localLength).isBetween(1, 64);
+        assertThat(domainLength).isBetween(1, 255);
         StringBuilder domain = new StringBuilder();
         while (domain.length() < domainLength) {
             if (!domain.isEmpty()) {
@@ -227,11 +230,10 @@ class ProfileIntegrationTest {
             }
             domain.append("b".repeat(Math.min(63, domainLength - domain.length())));
         }
-        String email = local + "@" + domain;
-        assertThat(email).hasSize(length);
         assertThat(domain.toString().split("\\.", -1)).allSatisfy(label ->
                 assertThat(label.length()).isBetween(1, 63));
-        return email;
+        assertThat(domain.length()).isEqualTo(domainLength);
+        return "a".repeat(localLength) + "@" + domain;
     }
 
     /** 그 값이 어긴 제약 애너테이션들. 위반 메시지가 아니라 규칙 자체를 본다 — 메시지는 로캘·버전에 따라 바뀐다. */
