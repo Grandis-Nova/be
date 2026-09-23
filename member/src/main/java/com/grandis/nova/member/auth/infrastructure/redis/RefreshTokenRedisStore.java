@@ -1,7 +1,7 @@
 package com.grandis.nova.member.auth.infrastructure.redis;
 
 import com.grandis.nova.common.security.AuthRedisKeys;
-import com.grandis.nova.member.auth.application.RefreshTokenStore;
+import com.grandis.nova.member.auth.application.AdminRefreshTokenStore;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -10,11 +10,11 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
 /**
- * 리프레시 jti 의 Lua 비교교환 저장소. 세션 목록(ZSet)은 두지 않는다.
+ * 관리자 세션의 리프레시 jti 를 두는 Lua 비교교환 저장소. 회원 리프레시는 여기가 아니라 `shop.refresh_tokens` 가 정본이다.
  * 회전은 GET → 비교 → SET 을 서버 안에서 한 번에 한다. 클라이언트에서 GET 하고 SET 하면 그 사이에 다른 요청이 끼어 둘 다 성공한다.
  */
 @Repository
-public class RefreshTokenRedisStore implements RefreshTokenStore {
+public class RefreshTokenRedisStore implements AdminRefreshTokenStore {
 
     /** KEYS[1]=세션 키, ARGV[1]=기대 jti, ARGV[2]=새 jti, ARGV[3]=TTL(ms). 1 이면 교체됨, 0 이면 키 없음 또는 jti 불일치. */
     static final DefaultRedisScript<Long> ROTATE = new DefaultRedisScript<>("""

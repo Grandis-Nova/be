@@ -35,14 +35,14 @@ public class KakaoLoginService {
         this.tokens = tokens;
     }
 
-    public LoginResult login(String code, String redirectUri) {
+    public LoginResult login(String code, String redirectUri, ClientInfo client) {
         String kakaoAccessToken = kakao.exchangeCode(code, redirectUri);
         KakaoUserInfo user = kakao.fetchUser(kakaoAccessToken);
 
         Customer customer = findOrCreate(user);
 
         // 제재 칸이 생기기 전까지 로그인은 막지 않는다. nbf 확인은 필터가 한다. 여기서는 발급만.
-        TokenService.IssuedTokens issued = tokens.issue(String.valueOf(customer.getId()), Role.USER);
+        TokenService.IssuedTokens issued = tokens.issue(String.valueOf(customer.getId()), Role.USER, client);
         return new LoginResult(issued, customer.getDisplayName(), Role.USER);
     }
 
