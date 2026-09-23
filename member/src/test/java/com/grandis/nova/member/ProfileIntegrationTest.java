@@ -24,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.web.FilterChainProxy;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -70,6 +71,8 @@ class ProfileIntegrationTest {
     @Autowired JwtTokenProvider provider;
     @Autowired CustomerRepository customers;
     @Autowired JdbcTemplate jdbc;
+    @Autowired TransactionTemplate transactions;
+    @Autowired com.grandis.nova.member.customer.CustomerService profiles;
 
     private MockMvc mvc;
     private Customer customer;
@@ -218,6 +221,73 @@ class ProfileIntegrationTest {
                             .content(body(null, null, phone)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.phoneNumber").value(phone));
+        }
+    }
+
+    @Test
+    @DisplayName("내 정보와 기본 배송지를 동시에 저장해도 서로를 덮지 않는다 — 한 행이지만 다른 자원이다")
+    void concurrentProfileAndAddressEditsDoNotClobberEachOther() throws Exception {
+        // 먼저 배송지를 채워 둔다. 그래야 "프로필 저장이 배송지를 지웠다" 가 눈에 보인다.
+        mvc.perform(put("/api/v1/me/default-address").header(JwtAuthenticationFilter.HEADER, userToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"홍길동\",\"phone\":\"01012345678\",\"postalCode\":\"06236\",\"line1\":\"서울\",\"line2\":null}"))
+                .andExpect(status().isOk());
+
+        // 두 트랜잭션이 **둘 다 읽은 뒤에** 각자 쓰게 만든다. 순서대로 돌면 늦게 커밋한 쪽이 이겨 버그가 안 드러난다.
+        long id = customer.getId();
+        java.util.concurrent.CountDownLatch bothLoaded = new java.util.concurrent.CountDownLatch(2);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(2);
+        java.util.List<Throwable> failures = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+        Runnable editProfile = () -> run(failures, done, () -> transactions.executeWithoutResult(status -> {
+            Customer loaded = customers.findById(id).orElseThrow();
+            await(bothLoaded);
+            loaded.changeProfile(new com.grandis.nova.member.customer.Profile("홍길동", "hong@example.com", "010-1111-2222"));
+        }));
+        Runnable editAddress = () -> run(failures, done, () -> transactions.executeWithoutResult(status -> {
+            Customer loaded = customers.findById(id).orElseThrow();
+            await(bothLoaded);
+            loaded.changeDefaultAddress(new com.grandis.nova.member.customer.ShippingAddress(
+                    "김철수", "01099998888", "12345", "부산", "202호"));
+        }));
+
+        Thread one = new Thread(editProfile);
+        Thread two = new Thread(editAddress);
+        one.start();
+        two.start();
+        assertThat(done.await(30, java.util.concurrent.TimeUnit.SECONDS)).as("두 트랜잭션이 끝났다").isTrue();
+        one.join(5000);
+        two.join(5000);
+        assertThat(failures).as("두 저장 모두 예외 없이 끝난다").isEmpty();
+
+        Map<String, Object> saved = jdbc.queryForMap(
+                "SELECT name, email, phone_number, default_ship_to_name, default_ship_to_line1 FROM customers WHERE id = ?", id);
+        assertThat(saved).as("프로필 저장이 배송지를 되돌리지 않았다")
+                .containsEntry("default_ship_to_name", "김철수").containsEntry("default_ship_to_line1", "부산");
+        assertThat(saved).as("배송지 저장이 프로필을 되돌리지 않았다")
+                .containsEntry("name", "홍길동").containsEntry("email", "hong@example.com");
+    }
+
+    private static void run(java.util.List<Throwable> failures, java.util.concurrent.CountDownLatch done, Runnable body) {
+        try {
+            body.run();
+        } catch (Throwable e) {   // noqa: 테스트가 예외를 삼키지 않고 모아서 단언한다
+            failures.add(e);
+        } finally {
+            done.countDown();
+        }
+    }
+
+    /** 둘 다 읽을 때까지 기다린다. 이 지점이 없으면 두 트랜잭션이 겹치지 않아 시험이 아무것도 못 잡는다. */
+    private static void await(java.util.concurrent.CountDownLatch latch) {
+        latch.countDown();
+        try {
+            if (!latch.await(20, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IllegalStateException("상대 트랜잭션이 읽기까지 오지 않았다");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
         }
     }
 
