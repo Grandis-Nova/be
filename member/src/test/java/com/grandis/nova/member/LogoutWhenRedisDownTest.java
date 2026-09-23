@@ -99,6 +99,23 @@ class LogoutWhenRedisDownTest {
     }
 
     @Test
+    @DisplayName("리프레시 조회가 죽어도 헤더의 sid 는 끊고 503 + 쿠키 만료 — 조회 예외가 500 으로 새어 폐기를 통째로 건너뛰지 않는다")
+    void refreshLookupFailureStillRevokesTheHeaderSession() throws Exception {
+        doThrow(DOWN).when(refreshTokens).find(any());
+
+        mvc().perform(delete("/api/v1/session")
+                        .header(JwtAuthenticationFilter.HEADER, accessToken())
+                        .cookie(new jakarta.servlet.http.Cookie(AuthCookies.REFRESH_TOKEN, "opaque-token")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.retryable").value(true))
+                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
+                .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));
+
+        verify(revocations).revokeSession(any(), any());   // 헤더에서 얻은 sid 는 그래도 끊었다
+    }
+
+    @Test
     @DisplayName("리프레시 폐기만 실패: 503 이지만 sid 표식은 심어졌다 (액세스는 즉시 죽는다)")
     void markStillWrittenWhenDeleteFails() throws Exception {
         doThrow(DOWN).when(refreshTokens).revokeSession(any());

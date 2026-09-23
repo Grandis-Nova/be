@@ -276,6 +276,15 @@ class TokenServiceTest {
     }
 
     @Test
+    @DisplayName("rotate(관리자): 회원 역할의 리프레시 JWT 를 관리자 쿠키로 내면 401 — 쿠키 이름만으로 관리자로 취급하지 않는다")
+    void adminRotateRejectsUserRoleToken() {
+        String userRefreshJwt = provider.create("101", Role.USER, UUID.randomUUID(), TokenType.REFRESH);
+
+        assertThatThrownBy(() -> service.rotate(userRefreshJwt, Role.ADMIN, CLIENT)).isInstanceOf(InvalidTokenException.class);
+        verify(adminRefreshTokens, never()).rotate(any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("rotate(관리자): 액세스 토큰을 내면 401 이고 저장소를 건드리지 않는다")
     void adminRotateRejectsAccessToken() {
         TokenService.IssuedTokens first = service.issue("admin", Role.ADMIN, CLIENT);

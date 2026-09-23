@@ -132,11 +132,18 @@ public class AuthController {
             }
         }
         // 회원 리프레시는 불투명 난수라 파싱할 것이 없다. 저장소에서 주인을 찾는다 — 폐기·만료된 행도 찾아 sid 를 얻는다.
-        if (present(userRefresh)) {
-            tokens.sessionOfUserRefresh(userRefresh).ifPresentOrElse(sessions::add,
-                    () -> log.info("logout: refresh cookie matches no stored token"));
-        }
         boolean incomplete = false;
+        if (present(userRefresh)) {
+            try {
+                tokens.sessionOfUserRefresh(userRefresh).ifPresentOrElse(sessions::add,
+                        () -> log.info("logout: refresh cookie matches no stored token"));
+            } catch (DataAccessException e) {
+                // 이 쿠키의 sid 는 못 알아냈다. 그래도 헤더에서 얻은 sid 는 끊고, 성공으로 답하지 않는다.
+                // 여기서 던지면 나머지 폐기도 안 되고 쿠키도 안 지워진 채 500 이 나간다.
+                incomplete = true;
+                log.warn("logout: refresh lookup failed cause={}", e.getClass().getSimpleName());
+            }
+        }
         for (UUID sid : sessions) {
             try {
                 tokens.revoke(sid);

@@ -145,6 +145,11 @@ public class TokenService {
         if (claims.type() != TokenType.REFRESH) {
             throw new InvalidTokenException("not a refresh token: " + claims.type());
         }
+        // 관리자 쿠키로 왔다고 관리자 토큰인 것은 아니다. 역할을 안 보면 예전 방식으로 발급된 회원 리프레시 JWT 가
+        // 관리자 쿠키에 담겨 이 경로를 지나고, 응답과 쿠키만 관리자로 처리되어 토큰의 실제 역할과 어긋난다.
+        if (claims.role() != Role.ADMIN) {
+            throw new InvalidTokenException("not an admin refresh token: " + claims.role());
+        }
         if (revokedBeforeRotation(claims)) {
             throw new InvalidTokenException("refresh of revoked session sid=" + shortSid(claims.sessionId()));
         }
