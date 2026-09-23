@@ -260,6 +260,30 @@ class AuthFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("관리자 리프레시도 한 번만 쓴다: 교체된 쿠키를 다시 내면 401, 세션이 끊겨 새 쿠키도 죽는다")
+    void adminRefreshCookieIsSingleUse() throws Exception {
+        MvcResult login = mvc.perform(post("/api/v1/admin/session").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"" + ADMIN_PASSWORD + "\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie first = login.getResponse().getCookie(AuthCookies.ADMIN_REFRESH_TOKEN);
+
+        MvcResult rotated = mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(first))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie second = rotated.getResponse().getCookie(AuthCookies.ADMIN_REFRESH_TOKEN);
+        assertThat(second.getValue()).isNotEqualTo(first.getValue());
+
+        // 옛 쿠키 재사용 → 401. 회원 쪽과 같은 규칙인데 저장소가 다르다(관리자는 Redis 비교교환, 회원은 DB 행 잠금).
+        mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(first))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHENTICATED"));
+        // 재사용을 보면 세션을 끊는다 — 방금 받은 새 쿠키도 같이 죽는다
+        mvc.perform(post("/api/v1/session/refresh").header("Origin", ORIGIN).cookie(second))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("로그아웃은 공개다: 액세스가 깨졌어도(만료와 같은 처리) 리프레시 쿠키의 sid 를 끊고 204 + 두 쿠키 만료. 그 뒤 재발급 401")
     void logoutWithBrokenAccessStillRevokesViaRefreshCookie() throws Exception {
         MvcResult r = login();
