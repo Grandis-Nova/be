@@ -188,7 +188,7 @@ class MemberIntegrationTest {
             for (int i = 0; i < n; i++) {
                 results.add(pool.submit(() -> {
                     start.await();
-                    return loginService.login("c", REDIRECT);
+                    return loginService.login("c", REDIRECT, com.grandis.nova.member.auth.application.ClientInfo.UNKNOWN);
                 }));
             }
             start.countDown();

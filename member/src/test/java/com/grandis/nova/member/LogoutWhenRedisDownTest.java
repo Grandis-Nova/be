@@ -15,6 +15,7 @@ import com.grandis.nova.common.security.Role;
 import com.grandis.nova.common.security.TokenType;
 import com.grandis.nova.common.web.RequestIdFilter;
 import com.grandis.nova.member.auth.api.AuthCookies;
+import com.grandis.nova.member.auth.application.AdminRefreshTokenStore;
 import com.grandis.nova.member.auth.application.RefreshTokenStore;
 import com.grandis.nova.member.auth.application.RevocationStore;
 import java.util.UUID;
@@ -67,7 +68,8 @@ class LogoutWhenRedisDownTest {
     @Autowired FilterChainProxy springSecurityFilterChain;
     @Autowired RequestIdFilter requestIdFilter;
     @Autowired JwtTokenProvider provider;
-    @MockitoBean RefreshTokenStore refreshTokens;
+    @MockitoBean RefreshTokenStore refreshTokens;              // 회원 리프레시 정본(DB) — 여기서는 죽은 저장소를 흉내 낸다
+    @MockitoBean AdminRefreshTokenStore adminRefreshTokens;
     @MockitoBean RevocationStore revocations;
     @MockitoBean RevocationChecker checker;   // 필터의 폐기 조회도 죽은 상태로: DELETE /session 은 열린 경로라 통과해야 한다
 
@@ -84,7 +86,7 @@ class LogoutWhenRedisDownTest {
     @Test
     @DisplayName("저장소·체커가 전부 예외를 던지면 503 DEPENDENCY_UNAVAILABLE(details.retryable=true) 이고 refresh 쿠키는 만료로 내려온다")
     void logoutIs503RetryableWhenRedisDown() throws Exception {
-        doThrow(DOWN).when(refreshTokens).delete(any());
+        doThrow(DOWN).when(refreshTokens).revokeSession(any());
         doThrow(DOWN).when(revocations).revokeSession(any(), any());
         doThrow(new com.grandis.nova.common.security.RevocationCheckFailedException(DOWN)).when(checker).isRevoked(any());
 
@@ -97,9 +99,26 @@ class LogoutWhenRedisDownTest {
     }
 
     @Test
-    @DisplayName("리프레시 삭제만 실패: 503 이지만 sid 표식은 심어졌다 (액세스는 즉시 죽는다)")
+    @DisplayName("리프레시 조회가 죽어도 헤더의 sid 는 끊고 503 + 쿠키 만료 — 조회 예외가 500 으로 새어 폐기를 통째로 건너뛰지 않는다")
+    void refreshLookupFailureStillRevokesTheHeaderSession() throws Exception {
+        doThrow(DOWN).when(refreshTokens).find(any());
+
+        mvc().perform(delete("/api/v1/session")
+                        .header(JwtAuthenticationFilter.HEADER, accessToken())
+                        .cookie(new jakarta.servlet.http.Cookie(AuthCookies.REFRESH_TOKEN, "opaque-token")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.details.retryable").value(true))
+                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
+                .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));
+
+        verify(revocations).revokeSession(any(), any());   // 헤더에서 얻은 sid 는 그래도 끊었다
+    }
+
+    @Test
+    @DisplayName("리프레시 폐기만 실패: 503 이지만 sid 표식은 심어졌다 (액세스는 즉시 죽는다)")
     void markStillWrittenWhenDeleteFails() throws Exception {
-        doThrow(DOWN).when(refreshTokens).delete(any());
+        doThrow(DOWN).when(refreshTokens).revokeSession(any());
 
         mvc().perform(delete("/api/v1/session").header(JwtAuthenticationFilter.HEADER, accessToken()))
                 .andExpect(status().isServiceUnavailable())
@@ -112,7 +131,7 @@ class LogoutWhenRedisDownTest {
     }
 
     @Test
-    @DisplayName("표식 쓰기만 실패: 503 이고 리프레시 삭제는 그래도 시도됐다")
+    @DisplayName("표식 쓰기만 실패: 503 이고 리프레시 폐기는 그래도 시도됐다")
     void refreshStillDeletedWhenMarkFails() throws Exception {
         doThrow(DOWN).when(revocations).revokeSession(any(), any());
 
@@ -123,6 +142,6 @@ class LogoutWhenRedisDownTest {
                 .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
                 .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));   // 관리자 쿠키도 같이 만료돼야 한다
 
-        verify(refreshTokens).delete(any());
+        verify(refreshTokens).revokeSession(any());
     }
 }
