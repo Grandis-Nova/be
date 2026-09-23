@@ -92,7 +92,8 @@ class LogoutWhenRedisDownTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.details.retryable").value(true))
-                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
+                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
+                .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));   // 관리자 쿠키도 같이 만료돼야 한다
     }
 
     @Test
@@ -104,7 +105,8 @@ class LogoutWhenRedisDownTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.details.retryable").value(true))
-                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
+                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
+                .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));   // 관리자 쿠키도 같이 만료돼야 한다
 
         verify(revocations).revokeSession(any(), any());
     }
@@ -118,7 +120,8 @@ class LogoutWhenRedisDownTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.details.retryable").value(true))
-                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0));
+                .andExpect(cookie().maxAge(AuthCookies.REFRESH_TOKEN, 0))
+                .andExpect(cookie().maxAge(AuthCookies.ADMIN_REFRESH_TOKEN, 0));   // 관리자 쿠키도 같이 만료돼야 한다
 
         verify(refreshTokens).delete(any());
     }
