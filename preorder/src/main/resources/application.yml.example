@@ -28,6 +28,11 @@ spring:
         base-url: http://localhost:8082
         connect-timeout: 300ms
         read-timeout: 1s
+      # 취소 사전 확인. 답이 없으면 취소를 시작하지 않고 503 이다.
+      order:
+        base-url: http://localhost:8084
+        connect-timeout: 300ms
+        read-timeout: 1s
   data:
     redis:
       host: localhost
