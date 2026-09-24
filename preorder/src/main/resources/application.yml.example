@@ -16,6 +16,8 @@ spring:
       # 빠뜨려도 오류가 나지 않는다. 부하가 걸릴 때까지 아무도 모른다.
       transaction-isolation: TRANSACTION_READ_COMMITTED
       maximum-pool-size: 10
+      # 가상 스레드라 요청이 풀 앞에서 기다린다. 기본 30s 대신 빨리 실패시킨다(ms)
+      connection-timeout: 2000
   jpa:
     # 정본은 flyway-project/migrations. docs/schema.sql은 생성된 최신 구조다.
     hibernate:
@@ -71,7 +73,7 @@ nova:
     rollout-ends-at: ${WAITING_TOKEN_ROLLOUT_ENDS_AT:}
   sqs:
     preorder-queue: nova-preorder
-  # 아웃박스 발행. transport: log(기본, 로그로만 남김). 실제 큐 전송 구현이 붙으면 그 값으로 바꾼다
+  # 아웃박스 발행. transport 는 필수(없으면 기동 실패). log 는 보내지 않고 로그로만 남긴다
   outbox:
     transport: log
     concurrency: 32        # 커밋 직후 발행 동시 실행 상한(가상 스레드). 넘치면 릴레이가 보낸다

@@ -33,6 +33,7 @@ import java.lang.annotation.Target;
         "spring.threads.virtual.enabled=true",
         // 릴레이는 테스트가 직접 부른다. 주기 실행이 끼어들면 잠그는 행이 겹쳐 결과가 흔들린다
         "nova.outbox.relay-interval=1h",
+        "nova.outbox.transport=log",
         "nova.admission-ticket.secret=" + PreorderIntegrationTest.ADMISSION_TICKET_SECRET
 })
 @Import(MySqlContainerConfig.class)

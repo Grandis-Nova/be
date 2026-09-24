@@ -40,7 +40,7 @@ class OutboxPublisher {
                 .ifPresent(this::publish);
     }
 
-    /** @return 보냈으면 true */
+    /** @return 보내고 발행 완료로 표시했으면 true. 이미 표시된 행이면 false */
     boolean publish(OutboxEvent event) {
         try {
             transport.send(toMessage(event));
@@ -50,8 +50,7 @@ class OutboxPublisher {
                     event.getId(), event.getEventType(), e);
             return false;
         }
-        outboxEvents.markPublished(event.getId(), clock.instant());
-        return true;
+        return outboxEvents.markPublished(event.getId(), clock.instant()) == 1;
     }
 
     private OutboundMessage toMessage(OutboxEvent event) {
