@@ -97,6 +97,19 @@ public class ShopFixtures {
                 """, syncJobId, attemptNumber, result, httpStatus, errorCode);
     }
 
+    /**
+     * worker 가 외부 호출에 성공해 작업을 SUCCEEDED 로 바꾼 것처럼 만든다. preorder 코드에는 이 전이가 없다.
+     *
+     * @return 그 작업의 id
+     */
+    public Long workerSucceeds(Long preorderId, String jobType) {
+        Long jobId = jdbcTemplate.queryForObject(
+                "SELECT id FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = ?", Long.class,
+                preorderId, jobType);
+        jdbcTemplate.update("UPDATE preorder_sync_jobs SET status = 'SUCCEEDED' WHERE id = ?", jobId);
+        return jobId;
+    }
+
     /** 확인용 건수 조회. */
     public int count(String sql, Object... args) {
         return jdbcTemplate.queryForObject(sql, Integer.class, args);
