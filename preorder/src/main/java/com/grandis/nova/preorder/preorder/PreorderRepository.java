@@ -1,5 +1,7 @@
 package com.grandis.nova.preorder.preorder;
 
+import com.grandis.nova.common.BusinessException;
+import com.grandis.nova.preorder.PreorderErrorCode;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -21,6 +23,15 @@ public interface PreorderRepository extends JpaRepository<Preorder, Long>, JpaSp
 
     /** 공개 UUID 로 찾는다. 조회 API 는 이 값만 받는다 — 내부 id 는 밖에 알리지 않는다. */
     Optional<Preorder> findByPreorderToken(String preorderToken);
+
+    /**
+     * API 가 받은 공개 UUID 의 예약. 없으면 404 다.
+     * 이벤트처럼 "없으면 메시지가 잘못된 것" 인 곳은 이것 대신 {@link #findByPreorderToken} 을 쓴다.
+     */
+    default Preorder getByToken(String preorderToken) {
+        return findByPreorderToken(preorderToken)
+                .orElseThrow(() -> new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND));
+    }
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""

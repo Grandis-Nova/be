@@ -1,8 +1,5 @@
 package com.grandis.nova.preorder.query;
 
-import com.grandis.nova.common.BusinessException;
-import com.grandis.nova.preorder.PreorderErrorCode;
-import com.grandis.nova.preorder.preorder.Preorder;
 import com.grandis.nova.preorder.preorder.PreorderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +19,6 @@ public class PreorderNoteService {
 
     @Transactional
     public void changeInternalNote(String preorderToken, String internalNote) {
-        Preorder preorder = preorders.findByPreorderToken(preorderToken)
-                .orElseThrow(() -> new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND));
-        preorder.changeInternalNote(internalNote);
+        preorders.getByToken(preorderToken).changeInternalNote(internalNote);
     }
 }

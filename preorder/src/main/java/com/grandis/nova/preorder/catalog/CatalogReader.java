@@ -3,9 +3,7 @@ package com.grandis.nova.preorder.catalog;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.grandis.nova.common.BusinessException;
-import com.grandis.nova.common.CommonErrorCode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.grandis.nova.preorder.client.InternalCallFailures;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
@@ -28,7 +26,7 @@ import java.util.concurrent.CompletionException;
 @Component
 public class CatalogReader {
 
-    private static final Logger log = LoggerFactory.getLogger(CatalogReader.class);
+    static final String DEPENDENCY = "catalog";
 
     static final Duration REFRESH_AFTER = Duration.ofMinutes(1);
     static final Duration EXPIRE_AFTER = Duration.ofMinutes(30);
@@ -81,11 +79,9 @@ public class CatalogReader {
         } catch (CompletionException | RestClientException e) {
             Throwable cause = e instanceof CompletionException && e.getCause() != null ? e.getCause() : e;
             if (cause instanceof HttpClientErrorException clientError) {
-                log.error("catalog 연동 오류 productId={} status={}", productId, clientError.getStatusCode(), e);
-                throw new IllegalStateException("catalog 연동 오류: " + clientError.getStatusCode(), e);
+                throw InternalCallFailures.integrationError(DEPENDENCY, "productId=" + productId, clientError);
             }
-            log.warn("catalog 상품 조회 실패 productId={}", productId, e);
-            throw new BusinessException(CommonErrorCode.DEPENDENCY_UNAVAILABLE);
+            throw InternalCallFailures.unavailable(DEPENDENCY, "productId=" + productId, e);
         }
     }
 
