@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.grandis.nova.preorder.preorder.CancelReason;
 
 /**
- * preorder 가 발행하는 메시지. 계약: contracts/preorder-internal.md 2.2.
+ * preorder 가 발행하는 메시지.
  *
  * record 의 칸이 곧 payload 다. 이벤트 종류 · aggregate 를 record 가 함께 정하므로
  * 종류와 본문이 어긋난 메시지를 만들 수 없다. 소비자는 payload 를 믿지 않고 aggregateId 로 원장을 다시 읽는다 —
@@ -13,7 +13,7 @@ import com.grandis.nova.preorder.preorder.CancelReason;
  */
 public sealed interface OutboxMessage {
 
-    String eventType();
+    OutboundEventType eventType();
 
     AggregateType aggregateType();
 
@@ -31,8 +31,8 @@ public sealed interface OutboxMessage {
         }
 
         @Override
-        public String eventType() {
-            return "REGISTER_JOB_READY";
+        public OutboundEventType eventType() {
+            return OutboundEventType.REGISTER_JOB_READY;
         }
 
         @Override
@@ -55,8 +55,8 @@ public sealed interface OutboxMessage {
         }
 
         @Override
-        public String eventType() {
-            return "CANCEL_JOB_READY";
+        public OutboundEventType eventType() {
+            return OutboundEventType.CANCEL_JOB_READY;
         }
 
         @Override
@@ -74,8 +74,8 @@ public sealed interface OutboxMessage {
     record SyncJobReprocessRequested(Long syncJobId, String requestedBy) implements OutboxMessage {
 
         @Override
-        public String eventType() {
-            return "SYNC_JOB_REPROCESS_REQUESTED";
+        public OutboundEventType eventType() {
+            return OutboundEventType.SYNC_JOB_REPROCESS_REQUESTED;
         }
 
         @Override
@@ -101,8 +101,8 @@ public sealed interface OutboxMessage {
                                    CancelReason reason, Long cancelSequence) implements OutboxMessage {
 
         @Override
-        public String eventType() {
-            return "PREORDER_CANCEL_REQUESTED";
+        public OutboundEventType eventType() {
+            return OutboundEventType.PREORDER_CANCEL_REQUESTED;
         }
 
         @Override
