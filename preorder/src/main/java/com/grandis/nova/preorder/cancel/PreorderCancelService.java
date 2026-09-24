@@ -1,0 +1,56 @@
+package com.grandis.nova.preorder.cancel;
+
+import com.grandis.nova.common.BusinessException;
+import com.grandis.nova.preorder.PreorderErrorCode;
+import com.grandis.nova.preorder.order.OrderCancelabilityChecker;
+import com.grandis.nova.preorder.preorder.CancelReason;
+import com.grandis.nova.preorder.preorder.EventActor;
+import com.grandis.nova.preorder.preorder.Preorder;
+import com.grandis.nova.preorder.preorder.PreorderRepository;
+import org.springframework.stereotype.Service;
+
+/**
+ * 사용자 · 관리자 취소 요청. 사전 확인(order 호출)은 트랜잭션 밖에서 하고, 상태 변경은 {@link CancelStarter} 가 한다.
+ *
+ * 이미 취소 중 · 취소 완료면 order 에 묻지 않고 지금 상태를 돌려준다(같은 요청을 다시 보내도 결과가 같다).
+ * 확인과 취소 시작 사이에 배송이 시작되는 드문 경합은 order 가 REJECTED 로 돌려보내 PAYABLE 로 되돌아간다.
+ */
+@Service
+public class PreorderCancelService {
+
+    private final PreorderRepository preorders;
+    private final OrderCancelabilityChecker cancelabilityChecker;
+    private final CancelStarter cancelStarter;
+
+    public PreorderCancelService(PreorderRepository preorders, OrderCancelabilityChecker cancelabilityChecker,
+                                 CancelStarter cancelStarter) {
+        this.preorders = preorders;
+        this.cancelabilityChecker = cancelabilityChecker;
+        this.cancelStarter = cancelStarter;
+    }
+
+    /** 회원 본인의 취소. 남의 예약은 존재를 알리지 않는다(404). */
+    public CancelResult cancelByCustomer(Long customerId, String preorderToken, String reason, String authorization) {
+        Preorder preorder = preorders.getByToken(preorderToken);
+        if (!preorder.getCustomerId().equals(customerId)) {
+            throw new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND);
+        }
+        return cancel(preorder, EventActor.USER, reason, CancelReason.USER, authorization);
+    }
+
+    /** 관리자 취소. 사유는 이력에 남는다(필수). */
+    public CancelResult cancelByAdmin(String preorderToken, String reason, String authorization) {
+        return cancel(preorders.getByToken(preorderToken), EventActor.ADMIN, reason, CancelReason.ADMIN, authorization);
+    }
+
+    private CancelResult cancel(Preorder preorder, EventActor actor, String reason, CancelReason cancelReason,
+                                String authorization) {
+        if (preorder.isCancelable()) {
+            cancelabilityChecker.requireCancelable(preorder.getPreorderToken(), authorization);
+            cancelStarter.start(preorder, actor, reason, cancelReason);
+        }
+        Preorder current = preorders.getByToken(preorder.getPreorderToken());
+        return new CancelResult(current.getPreorderToken(), current.getStatus(), current.getEventSequence());
+    }
+
+}

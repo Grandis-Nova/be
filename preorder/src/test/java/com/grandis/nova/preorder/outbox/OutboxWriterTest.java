@@ -89,7 +89,7 @@ class OutboxWriterTest {
     @Test
     void 예약_내부_id_는_봉투의_aggregate_로만_쓰고_payload_에는_싣지_않는다() {
         Long id = transactionTemplate.execute(status -> writer.append(
-                new PreorderCancelRequested(aggregateId, "9f1c2d3e", 1024L, CancelReason.EXPIRY)).getId());
+                new PreorderCancelRequested(aggregateId, "9f1c2d3e", 1024L, CancelReason.EXPIRY, 3L)).getId());
 
         Map<String, Object> row = jdbcTemplate.queryForMap("""
                 SELECT aggregate_type, aggregate_id, JSON_KEYS(payload) AS payload_keys,
@@ -101,7 +101,7 @@ class OutboxWriterTest {
                 .containsEntry("aggregate_id", aggregateId)
                 .containsEntry("reason", "EXPIRY");
         assertThat((String) row.get("payload_keys"))
-                .contains("preorderId", "customerId", "reason")
+                .contains("preorderId", "customerId", "reason", "cancelSequence")
                 .doesNotContain("preorderInternalId", "eventType", "aggregateId");
     }
 

@@ -1,6 +1,7 @@
 package com.grandis.nova.preorder.config;
 
 import com.grandis.nova.preorder.catalog.CatalogClient;
+import com.grandis.nova.preorder.order.OrderClient;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.service.registry.ImportHttpServices;
 
@@ -9,5 +10,6 @@ import org.springframework.web.service.registry.ImportHttpServices;
  */
 @Configuration(proxyBeanMethods = false)
 @ImportHttpServices(group = "catalog", types = CatalogClient.class)
+@ImportHttpServices(group = "order", types = OrderClient.class)
 public class HttpClientConfig {
 }

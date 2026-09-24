@@ -123,8 +123,7 @@ public class PreorderQueryService {
 
     /** 관리자 상세. 작업 · 시도 · 이력까지 함께 읽는다. */
     public PreorderView.AdminDetail findOneForAdmin(String preorderToken) {
-        Preorder preorder = preorders.findByPreorderToken(preorderToken)
-                .orElseThrow(() -> new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND));
+        Preorder preorder = preorders.getByToken(preorderToken);
         List<PreorderSyncJob> jobs = syncJobs.findByPreorderIdOrderByJobType(preorder.getId());
         return new PreorderView.AdminDetail(preorder, batches.getAssigned(preorder), jobs,
                 syncAttempts.findByJobIds(jobs.stream().map(PreorderSyncJob::getId).toList()),
@@ -132,9 +131,11 @@ public class PreorderQueryService {
     }
 
     private Preorder require(Viewer viewer, String preorderToken) {
-        return preorders.findByPreorderToken(preorderToken)
-                .filter(preorder -> viewer.canSee(preorder.getCustomerId()))
-                .orElseThrow(() -> new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND));
+        Preorder preorder = preorders.getByToken(preorderToken);
+        if (!viewer.canSee(preorder.getCustomerId())) {
+            throw new BusinessException(PreorderErrorCode.PREORDER_NOT_FOUND);
+        }
+        return preorder;
     }
 
     private <T> List<T> withBatches(List<Preorder> found, BatchMapper<T> mapper) {

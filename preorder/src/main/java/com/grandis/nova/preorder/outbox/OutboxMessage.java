@@ -94,9 +94,11 @@ public sealed interface OutboxMessage {
      *
      * @param preorderInternalId 원장 조회용 예약 내부 id. 봉투의 aggregateId 로만 나가고 payload 에는 싣지 않는다
      * @param preorderId         공개 UUID(preorder_token)
+     * @param cancelSequence     이 취소 시도의 CANCELING 진입 이력 event_sequence. order 가 PREORDER_ORDER_SETTLED 에
+     *                           그대로 돌려주고, preorder 는 지금 시도의 결과인지 이것으로 가린다
      */
     record PreorderCancelRequested(@JsonIgnore Long preorderInternalId, String preorderId, Long customerId,
-                                   CancelReason reason) implements OutboxMessage {
+                                   CancelReason reason, Long cancelSequence) implements OutboxMessage {
 
         @Override
         public String eventType() {
