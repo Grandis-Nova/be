@@ -36,7 +36,7 @@ public class OutboxWriter {
     public OutboxEvent append(OutboxMessage message) {
         Objects.requireNonNull(message.aggregateId(), "aggregateId");
         OutboxEvent event = new OutboxEvent(UUID.randomUUID().toString(), message.aggregateType(),
-                message.aggregateId(), message.eventType(), jsonMapper.writeValueAsString(message));
+                message.aggregateId(), message.eventType().name(), jsonMapper.writeValueAsString(message));
         OutboxEvent saved = outboxEvents.save(event);
         eventPublisher.publishEvent(new OutboxAppended(saved.getId()));
         return saved;

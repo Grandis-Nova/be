@@ -3,6 +3,7 @@ package com.grandis.nova.preorder.outbox;
 import com.grandis.nova.preorder.outbox.OutboxMessage.CancelJobReady;
 import com.grandis.nova.preorder.outbox.OutboxMessage.PreorderCancelRequested;
 import com.grandis.nova.preorder.outbox.OutboxMessage.RegisterJobReady;
+import com.grandis.nova.preorder.outbox.publish.OutboxAfterCommitPublisher;
 import com.grandis.nova.preorder.preorder.CancelReason;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -39,6 +41,10 @@ class OutboxWriterTest {
 
     @Autowired
     CommittedEvents committedEvents;
+
+    /** 기록만 본다. 커밋 직후 발행이 끼어들면 published_at 이 비동기로 채워져 단정이 흔들린다. */
+    @MockitoBean
+    OutboxAfterCommitPublisher afterCommitPublisher;
 
     long aggregateId;
 

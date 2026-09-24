@@ -1,6 +1,10 @@
 spring:
   application:
     name: preorder
+  # 요청 처리 · 스케줄러를 가상 스레드로. DB 동시성은 커넥션 풀(maximum-pool-size)이 막는다
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: jdbc:mysql://localhost:3306/shop?serverTimezone=UTC&characterEncoding=UTF-8
     username: nova
@@ -23,7 +27,7 @@ spring:
     open-in-view: false
   http:
     serviceclient:
-      # 캐시가 비었을 때만 부른다(CatalogReader). 타임아웃은 내부 계약(연결 300ms · 읽기 1s)을 따른다.
+      # 캐시가 비었을 때만 부른다(CatalogReader). 타임아웃: 연결 300ms · 읽기 1s.
       catalog:
         base-url: http://localhost:8082
         connect-timeout: 300ms
@@ -67,6 +71,13 @@ nova:
     rollout-ends-at: ${WAITING_TOKEN_ROLLOUT_ENDS_AT:}
   sqs:
     preorder-queue: nova-preorder
+  # 아웃박스 발행. transport: log(기본, 로그로만 남김). 실제 큐 전송 구현이 붙으면 그 값으로 바꾼다
+  outbox:
+    transport: log
+    concurrency: 32        # 커밋 직후 발행 동시 실행 상한(가상 스레드). 넘치면 릴레이가 보낸다
+    relay-interval: 10s    # 릴레이 주기
+    relay-after: 1m        # 만든 지 이만큼 지난 미발행 행만 재발행
+    relay-batch: 100
   # 외부 예약 Mock 등록 요청의 scope(시험 실행 범위). 접수 때 request_payload 에 고정된다
   external-mock:
     scope: preorder

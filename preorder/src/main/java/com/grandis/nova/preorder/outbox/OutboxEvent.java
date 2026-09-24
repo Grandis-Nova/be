@@ -18,7 +18,7 @@ import java.time.Instant;
  * 아웃박스 행 = 메시지 하나. 업무 변경과 같은 트랜잭션에서 INSERT 해서
  * "업무는 커밋됐는데 메시지가 큐에 못 들어간" 창을 없앤다.
  *
- * 여기서는 기록만 한다. 발행(SQS 전송 · published_at 채움 · publish_attempts 증가)은 발행기가 한다.
+ * 여기서는 기록만 한다. 발행(전송 · published_at 채움 · publish_attempts 증가)은 OutboxPublisher 가 한다.
  * updated_at 이 없는 표라 BaseEntity 를 쓰지 않는다.
  */
 @Entity
