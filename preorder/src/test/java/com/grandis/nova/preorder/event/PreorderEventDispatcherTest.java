@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,6 +30,9 @@ class PreorderEventDispatcherTest {
 
     @Autowired
     JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    JsonMapper jsonMapper;
 
     @MockitoBean
     CatalogClient catalogClient;
@@ -49,11 +54,11 @@ class PreorderEventDispatcherTest {
         Long jobId = fixtures.workerSucceeds(preorderId, "REGISTER");
         String externalNumber = "R-" + ShopFixtures.unique();
 
-        dispatcher.dispatch("""
-                {"eventId":"%s","eventType":"EXTERNAL_JOB_SUCCEEDED","aggregateType":"PREORDER_SYNC_JOB",
-                 "aggregateId":%d,"occurredAt":"2026-09-03T01:00:03.470Z",
-                 "payload":{"syncJobId":%d,"preorderId":"%s","jobType":"REGISTER","externalNumber":"%s"}}
-                """.formatted(ShopFixtures.unique(), jobId, jobId, token, externalNumber));
+        dispatcher.dispatch(envelope("EXTERNAL_JOB_SUCCEEDED", "PREORDER_SYNC_JOB", jobId, payload()
+                .put("syncJobId", jobId)
+                .put("preorderId", token)
+                .put("jobType", "REGISTER")
+                .put("externalNumber", externalNumber)));
 
         assertThat(jdbcTemplate.queryForObject("SELECT external_reference FROM preorders WHERE id = ?",
                 String.class, preorderId)).isEqualTo(externalNumber);
@@ -61,11 +66,8 @@ class PreorderEventDispatcherTest {
 
     @Test
     void 주문_정리_메시지를_정리_결과_처리로_보낸다() {
-        dispatcher.dispatch("""
-                {"eventId":"%s","eventType":"PREORDER_ORDER_SETTLED","aggregateType":"PREORDER",
-                 "aggregateId":%d,"occurredAt":"2026-09-03T01:00:03.470Z",
-                 "payload":{"preorderId":"%s","result":"NO_ORDER","reason":null}}
-                """.formatted(ShopFixtures.unique(), preorderId, token));
+        dispatcher.dispatch(envelope("PREORDER_ORDER_SETTLED", "PREORDER", preorderId,
+                settled("NO_ORDER").put("cancelSequence", 2)));
 
         // 취소 중이 아니므로 아무것도 만들지 않는다 — 결과 문자열이 enum 으로 읽혔는지만 본다
         assertThat(fixtures.count(
@@ -75,18 +77,43 @@ class PreorderEventDispatcherTest {
 
     @Test
     void 받지_않는_이벤트_종류는_조용히_버리지_않고_예외로_올린다() {
-        assertThatThrownBy(() -> dispatcher.dispatch("""
-                {"eventId":"e-1","eventType":"SOMETHING_ELSE","aggregateType":"PREORDER","aggregateId":1,
-                 "payload":{}}
-                """)).isInstanceOf(IllegalArgumentException.class);
+        String body = envelope("SOMETHING_ELSE", "PREORDER", preorderId, payload());
+
+        assertThatThrownBy(() -> dispatcher.dispatch(body)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void 깨진_본문이나_모르는_결과_값은_예외로_올린다() {
+    void 깨진_본문이나_모르는_결과_값이나_시도_순번_없는_결과는_예외로_올린다() {
+        String unknownResult = envelope("PREORDER_ORDER_SETTLED", "PREORDER", preorderId,
+                settled("MAYBE").put("cancelSequence", 2));
+        String withoutSequence = envelope("PREORDER_ORDER_SETTLED", "PREORDER", preorderId, settled("CANCELED"));
+
         assertThatThrownBy(() -> dispatcher.dispatch("not-json")).isInstanceOf(JacksonException.class);
-        assertThatThrownBy(() -> dispatcher.dispatch("""
-                {"eventId":"e-2","eventType":"PREORDER_ORDER_SETTLED","aggregateType":"PREORDER","aggregateId":1,
-                 "payload":{"preorderId":"%s","result":"MAYBE","reason":null}}
-                """.formatted(token))).isInstanceOf(JacksonException.class);
+        assertThatThrownBy(() -> dispatcher.dispatch(unknownResult)).isInstanceOf(JacksonException.class);
+        assertThatThrownBy(() -> dispatcher.dispatch(withoutSequence)).isInstanceOf(JacksonException.class);
+    }
+
+    /**
+     * 계약 2.0 공통 봉투. 키는 계약서 이름을 그대로 적는다 — 받는 쪽 레코드를 직렬화해 만들면 이름이 어긋나도
+     * 양쪽이 같이 바뀌어 잡지 못하고, 필드가 빠진 · 잘못된 메시지도 만들 수 없다.
+     */
+    private String envelope(String eventType, String aggregateType, Long aggregateId, ObjectNode payload) {
+        ObjectNode envelope = jsonMapper.createObjectNode()
+                .put("eventId", ShopFixtures.unique())
+                .put("eventType", eventType)
+                .put("aggregateType", aggregateType)
+                .put("aggregateId", aggregateId)
+                .put("occurredAt", "2026-09-03T01:00:03.470Z");
+        envelope.set("payload", payload);
+        return jsonMapper.writeValueAsString(envelope);
+    }
+
+    private ObjectNode payload() {
+        return jsonMapper.createObjectNode();
+    }
+
+    /** PREORDER_ORDER_SETTLED payload 에서 cancelSequence 를 뺀 부분. */
+    private ObjectNode settled(String result) {
+        return payload().put("preorderId", token).put("result", result).putNull("reason");
     }
 }

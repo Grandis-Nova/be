@@ -93,7 +93,7 @@ class PreorderEventHandlerTest {
     @Test
     void 주문_정리가_끝나면_외부_취소_작업을_하나만_만든다() {
         startCancel(EventActor.USER);
-        PreorderOrderSettled settled = new PreorderOrderSettled(token, PreorderOrderSettled.Result.NO_ORDER, null);
+        PreorderOrderSettled settled = settled(PreorderOrderSettled.Result.NO_ORDER, null);
 
         handler.onOrderSettled(settled);
         handler.onOrderSettled(settled);
@@ -113,7 +113,7 @@ class PreorderEventHandlerTest {
 
     @Test
     void 취소_중이_아니면_주문_정리_결과로_작업을_만들지_않는다() {
-        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.CANCELED, null));
+        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.CANCELED, null, 1L));
 
         assertThat(fixtures.count("SELECT COUNT(*) FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'CANCEL'",
                 preorderId)).isZero();
@@ -125,7 +125,7 @@ class PreorderEventHandlerTest {
                 token, "REGISTER", "R-" + ShopFixtures.unique()));
         startCancel(EventActor.USER);
 
-        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.REJECTED, "SHIPPED"));
+        handler.onOrderSettled(settled(PreorderOrderSettled.Result.REJECTED, "SHIPPED"));
 
         assertThat(row()).containsEntry("status", "PAYABLE");
         assertThat(jdbcTemplate.queryForObject("""
@@ -136,7 +136,7 @@ class PreorderEventHandlerTest {
     @Test
     void 외부_취소가_성공하면_취소_완료가_되고_재신청할_수_있게_된다() {
         startCancel(EventActor.ADMIN);
-        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.NO_ORDER, null));
+        handler.onOrderSettled(settled(PreorderOrderSettled.Result.NO_ORDER, null));
         Long cancelJobId = fixtures.workerSucceeds(preorderId, "CANCEL");
 
         handler.onExternalJobSucceeded(new ExternalJobSucceeded(cancelJobId, token, "CANCEL", null));
@@ -144,10 +144,36 @@ class PreorderEventHandlerTest {
         assertThat(row()).containsEntry("status", "CANCELED").containsEntry("active_marker", null);
     }
 
+    /**
+     * 만료 취소가 결제와 겹쳐 거절된 뒤 사용자가 다시 취소한 경우. 첫 시도의 거절이 다시 와도 두 번째 시도를
+     * 되돌리지 않고, 두 번째 시도의 결과는 반영한다.
+     */
+    @Test
+    void 이전_취소_시도의_결과가_다시_와도_지금_취소에는_반영하지_않는다() {
+        handler.onExternalJobSucceeded(new ExternalJobSucceeded(fixtures.workerSucceeds(preorderId, "REGISTER"),
+                token, "REGISTER", "R-" + ShopFixtures.unique()));
+        startCancel(EventActor.SYSTEM);
+        PreorderOrderSettled firstRejected = settled(PreorderOrderSettled.Result.REJECTED, "PAID");
+        handler.onOrderSettled(firstRejected);
+        startCancel(EventActor.USER);
+
+        handler.onOrderSettled(firstRejected);
+        assertThat(row()).containsEntry("status", "CANCELING");
+
+        handler.onOrderSettled(settled(PreorderOrderSettled.Result.CANCELED, null));
+        assertThat(fixtures.count("SELECT COUNT(*) FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'CANCEL'",
+                preorderId)).isEqualTo(1);
+    }
+
     private void startCancel(EventActor actor) {
         Preorder preorder = preorders.findById(preorderId).orElseThrow();
         cancelStarter.start(preorder, actor, actor == EventActor.ADMIN ? "관리자 취소" : null,
                 actor == EventActor.ADMIN ? CancelReason.ADMIN : CancelReason.USER);
+    }
+
+    /** order 가 지금 취소 시도에 답한 것처럼 만든다. */
+    private PreorderOrderSettled settled(PreorderOrderSettled.Result result, String reason) {
+        return new PreorderOrderSettled(token, result, reason, fixtures.cancelSequence(preorderId));
     }
 
     private Map<String, Object> row() {

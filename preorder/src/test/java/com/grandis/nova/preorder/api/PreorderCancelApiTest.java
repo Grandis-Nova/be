@@ -7,6 +7,8 @@ import com.grandis.nova.preorder.catalog.CatalogClient;
 import com.grandis.nova.preorder.order.Cancelability;
 import com.grandis.nova.preorder.order.OrderClient;
 import com.grandis.nova.preorder.support.AcceptFixtures;
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,6 +107,26 @@ class PreorderCancelApiTest {
         assertThat(fixtures.count("""
                 SELECT COUNT(*) FROM outbox_events WHERE event_type = 'PREORDER_CANCEL_REQUESTED' AND aggregate_id = ?
                 """, accepted.preorder().getId())).isEqualTo(1);
+    }
+
+    /** 두 요청이 모두 취소 가능 판정을 받고 시작 트랜잭션에 겹쳐 들어와도 예약 행 잠금으로 한 번만 시작한다. */
+    @Test
+    void 같은_예약을_동시에_취소해도_취소는_한_번만_시작된다() throws Exception {
+        orderAnswers(true, null);
+
+        List<Outcome<String>> outcomes = Concurrently.run(2, i -> () -> cancel(customerId)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.status").value("CANCELING"))
+                .andExpect(jsonPath("$.data.version").value(2))
+                .andReturn().getResponse().getContentAsString());
+
+        assertThat(outcomes).allMatch(Outcome::succeeded);
+        Long preorderId = accepted.preorder().getId();
+        assertThat(fixtures.count("""
+                SELECT COUNT(*) FROM outbox_events WHERE event_type = 'PREORDER_CANCEL_REQUESTED' AND aggregate_id = ?
+                """, preorderId)).isEqualTo(1);
+        assertThat(fixtures.count("SELECT COUNT(*) FROM preorder_events WHERE preorder_id = ? AND to_status = 'CANCELING'",
+                preorderId)).isEqualTo(1);
     }
 
     @Test

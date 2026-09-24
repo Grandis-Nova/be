@@ -77,7 +77,7 @@ class CancelFlowScenarioTest {
     @EnumSource(value = PreorderOrderSettled.Result.class, names = {"NO_ORDER", "CANCELED"})
     void 주문이_정리되면_외부_취소를_거쳐_취소_완료가_된다(PreorderOrderSettled.Result result) {
         cancelService.cancelByCustomer(customerId, token, null, null);
-        handler.onOrderSettled(new PreorderOrderSettled(token, result, null));
+        handler.onOrderSettled(new PreorderOrderSettled(token, result, null, fixtures.cancelSequence(preorderId)));
         Long cancelJobId = fixtures.workerSucceeds(preorderId, "CANCEL");
         handler.onExternalJobSucceeded(new ExternalJobSucceeded(cancelJobId, token, "CANCEL", null));
 
@@ -91,7 +91,8 @@ class CancelFlowScenarioTest {
     @Test
     void 확인_뒤에_배송이_시작되면_거절되어_결제_가능으로_돌아가고_외부_취소는_없다() {
         cancelService.cancelByCustomer(customerId, token, null, null);
-        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.REJECTED, "SHIPPED"));
+        handler.onOrderSettled(new PreorderOrderSettled(token, PreorderOrderSettled.Result.REJECTED, "SHIPPED",
+                fixtures.cancelSequence(preorderId)));
 
         assertThat(history()).containsExactly(
                 "null>PENDING_SYNC", "PENDING_SYNC>PAYABLE", "PAYABLE>CANCELING", "CANCELING>PAYABLE");

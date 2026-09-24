@@ -5,7 +5,10 @@ import com.grandis.nova.preorder.outbox.OutboxWriter;
 import com.grandis.nova.preorder.preorder.CancelReason;
 import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.Preorder;
+import com.grandis.nova.preorder.preorder.PreorderEvent;
+import com.grandis.nova.preorder.preorder.PreorderEventRepository;
 import com.grandis.nova.preorder.preorder.PreorderLedger;
+import com.grandis.nova.preorder.preorder.PreorderStatus;
 import com.grandis.nova.preorder.preorder.PreorderTransition;
 import com.grandis.nova.preorder.preorder.PreorderTrigger;
 import com.grandis.nova.preorder.syncjob.PreorderSyncJobRepository;
@@ -25,13 +28,15 @@ import java.time.Clock;
 public class CancelStarter {
 
     private final PreorderLedger ledger;
+    private final PreorderEventRepository events;
     private final PreorderSyncJobRepository syncJobs;
     private final OutboxWriter outboxWriter;
     private final Clock clock;
 
-    public CancelStarter(PreorderLedger ledger, PreorderSyncJobRepository syncJobs, OutboxWriter outboxWriter,
-                         Clock clock) {
+    public CancelStarter(PreorderLedger ledger, PreorderEventRepository events, PreorderSyncJobRepository syncJobs,
+                         OutboxWriter outboxWriter, Clock clock) {
         this.ledger = ledger;
+        this.events = events;
         this.syncJobs = syncJobs;
         this.outboxWriter = outboxWriter;
         this.clock = clock;
@@ -44,8 +49,15 @@ public class CancelStarter {
         if (transition.applied()) {
             syncJobs.cancelRegister(preorder.getId(), clock.instant());
             outboxWriter.append(new PreorderCancelRequested(preorder.getId(), preorder.getPreorderToken(),
-                    preorder.getCustomerId(), cancelReason));
+                    preorder.getCustomerId(), cancelReason, cancelSequence(preorder.getId())));
         }
         return transition;
+    }
+
+    /** 방금 남긴 CANCELING 진입 이력의 순번. 예약 행을 잠그고 있으므로 가장 최근 것이 이번 시도다. */
+    private Long cancelSequence(Long preorderId) {
+        return events.findFirstByPreorderIdAndToStatusOrderByEventSequenceDesc(preorderId, PreorderStatus.CANCELING)
+                .map(PreorderEvent::getEventSequence)
+                .orElseThrow(() -> new IllegalStateException("취소 시작 이력이 없다: preorderId=" + preorderId));
     }
 }

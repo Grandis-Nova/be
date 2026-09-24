@@ -110,6 +110,17 @@ public class ShopFixtures {
         return jobId;
     }
 
+    /**
+     * order 가 PREORDER_ORDER_SETTLED 에 돌려줄 취소 시도 순번. 마지막 PREORDER_CANCEL_REQUESTED 에 실린 값을 읽는다.
+     */
+    public Long cancelSequence(Long preorderId) {
+        return jdbcTemplate.queryForObject("""
+                SELECT JSON_EXTRACT(payload, '$.cancelSequence') FROM outbox_events
+                 WHERE event_type = 'PREORDER_CANCEL_REQUESTED' AND aggregate_id = ?
+                 ORDER BY id DESC LIMIT 1
+                """, Long.class, preorderId);
+    }
+
     /** 확인용 건수 조회. */
     public int count(String sql, Object... args) {
         return jdbcTemplate.queryForObject(sql, Integer.class, args);

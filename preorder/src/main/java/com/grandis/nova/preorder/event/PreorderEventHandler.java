@@ -84,11 +84,19 @@ public class PreorderEventHandler {
     /**
      * 주문 정리 결과. 주문이 없거나 취소됐으면 외부 취소 작업을 만들고, 거절이면 PAYABLE 로 되돌린다.
      * 외부 취소는 주문 정리가 끝난 뒤에만 한다 — 주문이 거절되면(배송 시작) 외부 취소를 되돌릴 수 없다.
+     *
+     * 한 예약이 취소 → 거절 → 다시 취소를 거칠 수 있으므로, 지금 취소 시도의 결과일 때만 반영한다.
+     * 이전 시도의 결과가 다시 · 늦게 오면 무시한다.
      */
     @Transactional
     public void onOrderSettled(PreorderOrderSettled message) {
         Preorder preorder = preorders.findByPreorderToken(message.preorderId())
                 .orElseThrow(() -> new IllegalArgumentException("예약이 없다: " + message.preorderId()));
+        if (!isCurrentCancel(preorder.getId(), message.cancelSequence())) {
+            log.warn("지금 취소 시도의 결과가 아니라 무시한다 preorderId={} cancelSequence={}",
+                    message.preorderId(), message.cancelSequence());
+            return;
+        }
         switch (message.result()) {
             case NO_ORDER, CANCELED -> requestExternalCancel(preorder);
             case REJECTED -> ledger.fire(preorder.getId(), PreorderTrigger.CANCEL_REJECTED,
@@ -96,11 +104,22 @@ public class PreorderEventHandler {
         }
     }
 
-    /** 예약 행을 잠근 채 취소 중인지, CANCEL 작업이 이미 있는지 본다 — 같은 결과를 두 번 받아도 작업은 하나다. */
+    /**
+     * 예약 행을 잠근 채 취소 중인지, 결과의 시도 순번이 마지막 CANCELING 진입 이력과 같은지 본다.
+     * 잠금은 이 트랜잭션 끝까지 유지되므로 뒤이은 판단 사이에 새 취소가 끼어들지 못한다.
+     */
+    private boolean isCurrentCancel(Long preorderId, Long cancelSequence) {
+        PreorderStatus status = preorders.findStatusForUpdate(preorderId).orElseThrow();
+        return status == PreorderStatus.CANCELING
+                && events.findFirstByPreorderIdAndToStatusOrderByEventSequenceDesc(preorderId, PreorderStatus.CANCELING)
+                        .map(PreorderEvent::getEventSequence)
+                        .filter(cancelSequence::equals)
+                        .isPresent();
+    }
+
+    /** 예약 행은 이미 잠겨 있다. CANCEL 작업이 이미 있으면 만들지 않는다 — 같은 결과를 두 번 받아도 작업은 하나다. */
     private void requestExternalCancel(Preorder preorder) {
-        PreorderStatus status = preorders.findStatusForUpdate(preorder.getId()).orElseThrow();
-        if (status != PreorderStatus.CANCELING
-                || syncJobs.findByPreorderIdAndJobType(preorder.getId(), SyncJobType.CANCEL).isPresent()) {
+        if (syncJobs.findByPreorderIdAndJobType(preorder.getId(), SyncJobType.CANCEL).isPresent()) {
             return;
         }
         String payload = jsonMapper.writeValueAsString(new CancelRequestPayload(preorder.getPreorderToken(),
