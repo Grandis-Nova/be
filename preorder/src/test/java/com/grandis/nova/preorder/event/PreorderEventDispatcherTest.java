@@ -2,7 +2,11 @@ package com.grandis.nova.preorder.event;
 
 import com.grandis.nova.preorder.accept.AcceptResult;
 import com.grandis.nova.preorder.accept.PreorderAcceptService;
+import com.grandis.nova.preorder.cancel.CancelStarter;
 import com.grandis.nova.preorder.catalog.CatalogClient;
+import com.grandis.nova.preorder.preorder.CancelReason;
+import com.grandis.nova.preorder.preorder.EventActor;
+import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.support.AcceptFixtures;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
@@ -27,6 +31,12 @@ class PreorderEventDispatcherTest {
 
     @Autowired
     PreorderAcceptService acceptService;
+
+    @Autowired
+    CancelStarter cancelStarter;
+
+    @Autowired
+    PreorderRepository preorders;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -66,13 +76,14 @@ class PreorderEventDispatcherTest {
 
     @Test
     void 주문_정리_메시지를_정리_결과_처리로_보낸다() {
-        dispatcher.dispatch(envelope("PREORDER_ORDER_SETTLED", "PREORDER", preorderId,
-                settled("NO_ORDER").put("cancelSequence", 2)));
+        cancelStarter.start(preorders.findById(preorderId).orElseThrow(), EventActor.USER, null, CancelReason.USER);
 
-        // 취소 중이 아니므로 아무것도 만들지 않는다 — 결과 문자열이 enum 으로 읽혔는지만 본다
+        dispatcher.dispatch(envelope("PREORDER_ORDER_SETTLED", "PREORDER", preorderId,
+                settled("NO_ORDER").put("cancelSequence", fixtures.cancelSequence(preorderId))));
+
         assertThat(fixtures.count(
                 "SELECT COUNT(*) FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'CANCEL'", preorderId))
-                .isZero();
+                .isEqualTo(1);
     }
 
     @Test
