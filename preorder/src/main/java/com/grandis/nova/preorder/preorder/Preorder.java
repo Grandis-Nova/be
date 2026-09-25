@@ -109,6 +109,16 @@ public class Preorder extends BaseEntity {
         return status == PreorderStatus.PAYABLE && payableFrom != null ? payableFrom.plus(PAYMENT_WINDOW) : null;
     }
 
+    /** 지금 결제할 수 없으면 그 까닭, 결제할 수 있으면 null. 기한이 지났는데 아직 만료 처리 전이면 DUE_PASSED 다. */
+    public PayabilityBlocker payabilityBlocker(Instant now) {
+        return switch (status) {
+            case PENDING_SYNC -> PayabilityBlocker.NOT_YET_REGISTERED;
+            case PAYABLE -> now.isBefore(paymentDueAt()) ? null : PayabilityBlocker.DUE_PASSED;
+            case CANCELING -> PayabilityBlocker.CANCELING;
+            case CANCELED -> PayabilityBlocker.CANCELED;
+        };
+    }
+
     /** 취소 버튼을 보일지. 배송 시작 여부는 취소 요청 때 order 에 다시 묻는다. */
     public boolean isCancelable() {
         return status == PreorderStatus.PENDING_SYNC || status == PreorderStatus.PAYABLE;

@@ -30,6 +30,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/preorders/**").authenticated()
+                        .requestMatchers("/internal/**").authenticated()
                         .anyRequest().permitAll())
                 .build();
     }

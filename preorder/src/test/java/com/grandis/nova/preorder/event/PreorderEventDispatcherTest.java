@@ -39,6 +39,9 @@ class PreorderEventDispatcherTest {
     PreorderRepository preorders;
 
     @Autowired
+    PreorderEventHandler handler;
+
+    @Autowired
     JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -87,6 +90,29 @@ class PreorderEventDispatcherTest {
     }
 
     @Test
+    void 만료_요청_메시지를_만료_취소로_보낸다() {
+        handler.onExternalJobSucceeded(new ExternalJobSucceeded(fixtures.workerSucceeds(preorderId, "REGISTER"),
+                token, "REGISTER", "R-" + ShopFixtures.unique()));
+        jdbcTemplate.update("UPDATE preorders SET payable_from = UTC_TIMESTAMP(6) - INTERVAL 25 HOUR WHERE id = ?",
+                preorderId);
+
+        dispatcher.dispatch(envelope("PREORDER_EXPIRY_REQUESTED", "PREORDER", preorderId,
+                payload().put("preorderId", token)));
+
+        assertThat(status()).isEqualTo("CANCELING");
+    }
+
+    @Test
+    void 판매_중지_메시지를_회차_취소로_보낸다() {
+        Long productId = preorders.findById(preorderId).orElseThrow().getProductId();
+
+        dispatcher.dispatch(envelope("PREORDER_CAMPAIGN_CANCELED", "PRODUCT", productId,
+                payload().put("productId", productId).put("reason", "공급 차질")));
+
+        assertThat(status()).isEqualTo("CANCELING");
+    }
+
+    @Test
     void 받지_않는_이벤트_종류는_조용히_버리지_않고_예외로_올린다() {
         String body = envelope("SOMETHING_ELSE", "PREORDER", preorderId, payload());
 
@@ -117,6 +143,10 @@ class PreorderEventDispatcherTest {
                 .put("occurredAt", "2026-09-03T01:00:03.470Z");
         envelope.set("payload", payload);
         return jsonMapper.writeValueAsString(envelope);
+    }
+
+    private String status() {
+        return jdbcTemplate.queryForObject("SELECT status FROM preorders WHERE id = ?", String.class, preorderId);
     }
 
     private ObjectNode payload() {
