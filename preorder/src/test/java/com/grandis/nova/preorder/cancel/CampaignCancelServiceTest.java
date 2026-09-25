@@ -9,10 +9,9 @@ import com.grandis.nova.preorder.event.ExternalJobSucceeded;
 import com.grandis.nova.preorder.event.PreorderEventHandler;
 import com.grandis.nova.preorder.preorder.CancelReason;
 import com.grandis.nova.preorder.preorder.EventActor;
+import com.grandis.nova.preorder.preorder.PreorderLedger;
 import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.support.AcceptFixtures;
-import com.grandis.nova.preorder.support.Concurrently;
-import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -22,17 +21,25 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.times;
@@ -46,6 +53,9 @@ class CampaignCancelServiceTest {
 
     @MockitoSpyBean
     CancelStarter cancelStarter;
+
+    @MockitoSpyBean
+    PreorderLedger ledger;
 
     @Autowired
     PreorderAcceptService acceptService;
@@ -129,7 +139,7 @@ class CampaignCancelServiceTest {
                 throw new IllegalStateException("두 번째 묶음에서 한 번 멈춤");
             }
             return invocation.callRealMethod();
-        }).given(cancelStarter).start(any(), any(), any(), any());
+        }).given(AopTestUtils.<CancelStarter>getUltimateTargetObject(cancelStarter)).start(any(), any(), any(), any());
 
         assertThatThrownBy(() -> campaignCancelService.cancel(product.productId(), "공급 차질"))
                 .isInstanceOf(IllegalStateException.class);
@@ -146,27 +156,37 @@ class CampaignCancelServiceTest {
         assertThat(closesAt()).as("다시 받아도 첫 마감 시각을 유지한다").isEqualTo(closedAt);
     }
 
+    /** 접수가 회차를 먼저 잠그면 판매 중지는 그 커밋을 기다렸다가, 방금 들어온 예약까지 취소한다. */
     @Test
-    void 접수와_판매_중지가_겹쳐도_진행_중인_예약이_남지_않는다() throws Exception {
+    void 접수가_회차를_먼저_잠그면_판매_중지는_기다렸다가_그_예약까지_취소한다() throws Exception {
         accepts.stubCatalog(product);
-        List<Long> customers = IntStream.range(0, 8).mapToObj(i -> fixtures.customer()).toList();
+        Long customer = fixtures.customer();
+        CountDownLatch acceptLocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        willAnswer(invocation -> {
+            acceptLocked.countDown();
+            release.await(10, TimeUnit.SECONDS);
+            return invocation.callRealMethod();
+        }).given(AopTestUtils.<PreorderLedger>getUltimateTargetObject(ledger)).accept(any(), any(), any());
 
-        List<Outcome<Object>> outcomes = Concurrently.run(customers.size() + 1, i -> () -> {
-            if (i == customers.size()) {
-                campaignCancelService.cancel(product.productId(), "공급 차질");
-                return null;
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<AcceptResult> accepting = executor.submit(() -> accepts.submit(customer, product));
+            Future<?> canceling;
+            try {
+                assertThat(acceptLocked.await(10, TimeUnit.SECONDS)).isTrue();
+                canceling = executor.submit(() -> campaignCancelService.cancel(product.productId(), "공급 차질"));
+                await().alias("접수가 회차를 잠근 동안 판매 중지는 끝나지 않는다")
+                        .during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(5))
+                        .until(() -> !canceling.isDone());
+            } finally {
+                release.countDown();
             }
-            return accepts.submit(customers.get(i), product);
-        });
 
-        assertThat(outcomes).allSatisfy(outcome -> {
-            if (!outcome.succeeded()) {
-                assertThat(outcome.error()).isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.errorCode()).isEqualTo(PreorderErrorCode.SALE_CLOSED));
-            }
-        });
-        long accepted = outcomes.stream().filter(o -> o.succeeded() && o.value() != null).count();
-        assertThat(statuses()).hasSize((int) accepted).doesNotContain("PENDING_SYNC", "PAYABLE");
+            Long preorderId = accepting.get(10, TimeUnit.SECONDS).preorder().getId();
+            canceling.get(10, TimeUnit.SECONDS);
+            assertThat(cancelingEvents(preorderId)).hasSize(1);
+            assertThat(statuses()).containsExactly("CANCELING");
+        }
     }
 
     @Test
