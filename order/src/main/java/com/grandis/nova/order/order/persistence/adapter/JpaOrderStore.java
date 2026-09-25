@@ -8,6 +8,7 @@ import com.grandis.nova.order.order.domain.model.OrderItem;
 import com.grandis.nova.order.order.domain.model.OrderLine;
 import com.grandis.nova.order.order.domain.repository.OrderReader;
 import com.grandis.nova.order.order.domain.repository.OrderWriter;
+import com.grandis.nova.order.order.persistence.entity.OrderJpaEntity;
 import com.grandis.nova.order.order.persistence.mapper.OrderMapper;
 import com.grandis.nova.order.order.persistence.repository.OrderItemJpaRepository;
 import com.grandis.nova.order.order.persistence.repository.OrderJpaRepository;
@@ -28,8 +29,9 @@ import java.util.Optional;
  * Spring 예외로 바뀌지 않은 채(Hibernate ConstraintViolationException) 올라온다. @Repository 가 이 클래스에서 나가는
  * 예외를 DataAccessException 으로 바꾸므로, 여기서 flush 해야 호출하는 쪽이 제약 위반을 한 가지 예외로 다룰 수 있다.
  *
- * 상태 변경(changeStatus)은 벌크 UPDATE 라 영속성 컨텍스트 전체를 비운다(clearAutomatically). 엔티티는 이 클래스
- * 밖으로 나가지 않으므로 호출하는 쪽이 들고 있는 것(도메인 record)은 영향이 없다.
+ * 상태 변경(changeStatus)은 벌크 UPDATE 라 영속성 컨텍스트를 거치지 않는다. 바꾼 주문 엔티티만 떼어내고 컨텍스트 전체는
+ * 비우지 않는다 — 원장은 호출자의 트랜잭션에 참여하므로, 전체를 비우면 같은 트랜잭션의 다른 엔티티(결제 · 재고)가 떼어져
+ * 그 뒤의 변경이 dirty checking 에 잡히지 않고 조용히 유실된다.
  */
 @Repository
 class JpaOrderStore implements OrderReader, OrderWriter {
@@ -85,7 +87,11 @@ class JpaOrderStore implements OrderReader, OrderWriter {
 
     @Override
     public int changeStatus(Long orderId, OrderStatus from, OrderStatus to, Instant now) {
-        return orders.changeStatus(orderId, from, to, now);
+        int updated = orders.changeStatus(orderId, from, to, now);
+        // 이 주문을 이미 읽어 두었다면 옛 상태를 들고 있다. 그 하나만 떼어내 다음 조회가 DB 에서 읽게 한다.
+        // getReference 는 관리 중인 엔티티가 있으면 그것을, 없으면 프록시를 돌려줄 뿐 SELECT 하지 않는다.
+        entityManager.detach(entityManager.getReference(OrderJpaEntity.class, orderId));
+        return updated;
     }
 
     @Override

@@ -81,7 +81,10 @@ class StoredTimestampTest {
                 "SELECT created_at FROM order_events WHERE order_id = ? ORDER BY event_sequence",
                 // DB 는 UTC 벽시계 시각을 담는다. getTimestamp 는 JVM 시간대로 읽으므로 쓰지 않는다
                 (rs, n) -> rs.getObject(1, LocalDateTime.class).toInstant(ZoneOffset.UTC), placed.id());
-        assertThat(eventTimes).containsOnly(placed.createdAt());
+        // 생성 · 취소 두 이력이 번호 순으로, 둘 다 같은 시각(고정 시계)
+        assertThat(eventTimes).containsExactly(placed.createdAt(), placed.createdAt());
+        assertThat(loaded.status()).isEqualTo(OrderStatus.CANCELED);
+        assertThat(loaded.updatedAt()).isEqualTo(placed.createdAt());
         assertThat(placed.createdAt()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
     }
 }

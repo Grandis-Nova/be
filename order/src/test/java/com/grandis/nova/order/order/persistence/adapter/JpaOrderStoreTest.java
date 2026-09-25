@@ -7,6 +7,8 @@ import com.grandis.nova.order.order.domain.model.OrderDraft;
 import com.grandis.nova.order.order.domain.model.OrderItem;
 import com.grandis.nova.order.order.domain.repository.OrderReader;
 import com.grandis.nova.order.order.domain.repository.OrderWriter;
+import com.grandis.nova.order.order.persistence.entity.OrderItemJpaEntity;
+import com.grandis.nova.order.order.persistence.repository.OrderItemJpaRepository;
 import com.grandis.nova.order.order.vo.OrderToken;
 import com.grandis.nova.order.order.vo.ShipTo;
 import com.grandis.nova.order.support.OrderFixtures;
@@ -18,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 import static com.grandis.nova.order.support.OrderFixtures.preorderCommand;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +39,9 @@ class JpaOrderStoreTest {
 
     @Autowired
     EntityManager entityManager;
+
+    @Autowired
+    OrderItemJpaRepository items;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -94,6 +101,25 @@ class JpaOrderStoreTest {
         assertThatThrownBy(() -> writer.insert(stored)).hasRootCauseInstanceOf(IllegalArgumentException.class);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM orders WHERE customer_id = ?", Integer.class, customerId)).isEqualTo(1);
+    }
+
+    /*
+     * 상태 변경은 바꾼 주문만 떼어낸다. 컨텍스트 전체를 비우면 같은 트랜잭션에서 읽어 둔 다른 엔티티(결제 · 재고 등)가
+     * 떼어져 그 뒤의 변경이 dirty checking 에 잡히지 않는다. 옛 상태를 든 주문 엔티티는 떼어져야 다음 조회가 새 상태를 본다.
+     */
+    @Test
+    void changeStatusDetachesOnlyTheChangedOrder() {
+        OrderDraft draft = preorderCommand(customerId, preorderId, product).toDraft();
+        Order stored = writer.insert(Order.place(draft, OrderToken.issue()));
+        writer.insertItems(stored.id(), draft.lines());
+        entityManager.clear();
+        assertThat(reader.findById(stored.id())).get().extracting(Order::status).isEqualTo(OrderStatus.AWAITING_PAYMENT);
+        OrderItemJpaEntity otherManaged = items.findByOrderIdOrderById(stored.id()).getFirst();
+
+        writer.changeStatus(stored.id(), OrderStatus.AWAITING_PAYMENT, OrderStatus.CANCELED, Instant.now());
+
+        assertThat(entityManager.contains(otherManaged)).isTrue();
+        assertThat(reader.findById(stored.id())).get().extracting(Order::status).isEqualTo(OrderStatus.CANCELED);
     }
 
     @Test
