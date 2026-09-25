@@ -36,7 +36,7 @@ public class SyncJobReprocessor {
         PreorderSyncJob job = syncJobs.findById(syncJobId)
                 .orElseThrow(() -> new BusinessException(PreorderErrorCode.SYNC_JOB_NOT_FOUND));
         PreorderStatus preorderStatus = preorders.findById(job.getPreorderId()).orElseThrow().getStatus();
-        Optional<String> blocker = blocker(job, preorderStatus);
+        Optional<String> blocker = blocker(job.getJobType(), job.getStatus(), preorderStatus);
         if (blocker.isPresent()) {
             throw new BusinessException(PreorderErrorCode.SYNC_JOB_NOT_REPROCESSABLE,
                     Map.of("reason", blocker.get()));
@@ -46,9 +46,9 @@ public class SyncJobReprocessor {
     }
 
     /** 재처리할 수 없는 까닭. 할 수 있으면 비어 있다. */
-    static Optional<String> blocker(PreorderSyncJob job, PreorderStatus preorderStatus) {
-        if (job.getJobType() != SyncJobType.REGISTER || job.getStatus() != SyncJobStatus.DEAD_LETTER) {
-            return Optional.of("jobType=%s, status=%s".formatted(job.getJobType(), job.getStatus()));
+    static Optional<String> blocker(SyncJobType jobType, SyncJobStatus status, PreorderStatus preorderStatus) {
+        if (jobType != SyncJobType.REGISTER || status != SyncJobStatus.DEAD_LETTER) {
+            return Optional.of("jobType=%s, status=%s".formatted(jobType, status));
         }
         if (preorderStatus == PreorderStatus.CANCELING || preorderStatus == PreorderStatus.CANCELED) {
             return Optional.of("preorderStatus=" + preorderStatus);

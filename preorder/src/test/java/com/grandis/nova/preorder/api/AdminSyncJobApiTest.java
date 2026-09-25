@@ -8,8 +8,13 @@ import com.grandis.nova.preorder.preorder.CancelReason;
 import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.support.AcceptFixtures;
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
+import com.grandis.nova.preorder.syncjob.ReprocessCandidate;
+import com.grandis.nova.preorder.syncjob.ReprocessCandidateReader;
+import com.grandis.nova.preorder.syncjob.SyncJobAdminService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +29,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -55,6 +62,9 @@ class AdminSyncJobApiTest {
 
     @Autowired
     PreorderRepository preorders;
+
+    @Autowired
+    ReprocessCandidateReader candidateReader;
 
     @MockitoBean
     CatalogClient catalogClient;
@@ -139,6 +149,28 @@ class AdminSyncJobApiTest {
         assertThat(reprocessRequests(jobId)).containsExactly(Map.of("syncJobId", jobId, "requestedBy", "admin"));
     }
 
+    /** 요청을 받아들일 때마다 한 건씩 남긴다(중복 제거는 하지 않는다). worker 가 DEAD_LETTER 일 때만 되돌려 효과는 한 번이다. */
+    @Test
+    void 같은_작업을_연달아_재처리하면_받아들인_요청마다_한_건씩_남긴다() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+
+        admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId)).andExpect(status().isAccepted());
+        admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId)).andExpect(status().isAccepted());
+
+        assertThat(reprocessRequests(jobId)).hasSize(2);
+    }
+
+    @Test
+    void 같은_작업을_동시에_재처리해도_둘_다_받아들이고_한_건씩_남긴다() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+
+        List<Outcome<Integer>> outcomes = Concurrently.run(2, i -> () ->
+                admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId)).andReturn().getResponse().getStatus());
+
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.value()).isEqualTo(202));
+        assertThat(reprocessRequests(jobId)).hasSize(2);
+    }
+
     @Test
     void 재처리_조건_밖이면_409_와_사유() throws Exception {
         Long jobId = jdbcTemplate.queryForObject(
@@ -206,9 +238,40 @@ class AdminSyncJobApiTest {
     }
 
     @Test
-    void 초당_건수는_1에서_200_사이다() throws Exception {
+    void 초당_건수는_1에서_200_사이이고_작업은_한_번에_최대_1000_건이다() throws Exception {
         batch("{\"ratePerSecond\":0}").andExpect(status().isBadRequest());
         batch("{\"ratePerSecond\":201}").andExpect(status().isBadRequest());
+        String tooMany = LongStream.rangeClosed(1, SyncJobAdminService.MAX_BATCH_SIZE + 1)
+                .mapToObj(String::valueOf)
+                .collect(Collectors.joining(",", "{\"syncJobIds\":[", "]}"));
+        batch(tooMany).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 전체_대상은_id_순으로_상한만큼만_읽는다() {
+        String code = "E-" + ShopFixtures.unique();
+        Long first = fixtures.deadLetter(preorderId);
+        fixtures.syncAttempt(first, 1, "REJECTED", 422, code);
+        Long second = fixtures.deadLetter(accepts.accept(fixtures.customer()).preorder().getId());
+        fixtures.syncAttempt(second, 1, "REJECTED", 422, code);
+
+        assertThat(candidateReader.findDeadLetters(code, 1))
+                .extracting(ReprocessCandidate::syncJobId)
+                .containsExactly(first);
+    }
+
+    @Test
+    void 전체_대상에서_취소_중인_예약의_작업은_상한을_차지하지_않는다() {
+        String code = "E-" + ShopFixtures.unique();
+        cancelStarter.start(preorders.findById(preorderId).orElseThrow(), EventActor.USER, null, CancelReason.USER);
+        Long canceling = fixtures.deadLetter(preorderId);
+        fixtures.syncAttempt(canceling, 1, "REJECTED", 422, code);
+        Long reprocessable = fixtures.deadLetter(accepts.accept(fixtures.customer()).preorder().getId());
+        fixtures.syncAttempt(reprocessable, 1, "REJECTED", 422, code);
+
+        assertThat(candidateReader.findDeadLetters(code, 1))
+                .extracting(ReprocessCandidate::syncJobId)
+                .containsExactly(reprocessable);
     }
 
     private ResultActions batch(String body) throws Exception {

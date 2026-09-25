@@ -27,6 +27,9 @@ import java.util.stream.Collectors;
 @Service
 public class SyncJobAdminService {
 
+    /** 일괄 재처리 한 번의 최대 건수. 후보를 모두 메모리에 올리지 않는다. */
+    public static final int MAX_BATCH_SIZE = 1000;
+
     private static final Logger log = LoggerFactory.getLogger(SyncJobAdminService.class);
     private static final Sort NEWEST_FIRST =
             Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"));
@@ -34,15 +37,18 @@ public class SyncJobAdminService {
     private final PreorderSyncJobRepository syncJobs;
     private final PreorderRepository preorders;
     private final SyncAttemptReader syncAttempts;
+    private final ReprocessCandidateReader candidateReader;
     private final SyncJobReprocessor reprocessor;
     private final TaskExecutor reprocessExecutor;
 
     public SyncJobAdminService(PreorderSyncJobRepository syncJobs, PreorderRepository preorders,
-                               SyncAttemptReader syncAttempts, SyncJobReprocessor reprocessor,
+                               SyncAttemptReader syncAttempts, ReprocessCandidateReader candidateReader,
+                               SyncJobReprocessor reprocessor,
                                @Qualifier(SyncJobConfig.REPROCESS_EXECUTOR) TaskExecutor reprocessExecutor) {
         this.syncJobs = syncJobs;
         this.preorders = preorders;
         this.syncAttempts = syncAttempts;
+        this.candidateReader = candidateReader;
         this.reprocessor = reprocessor;
         this.reprocessExecutor = reprocessExecutor;
     }
@@ -73,27 +79,30 @@ public class SyncJobAdminService {
     }
 
     /**
-     * 대상을 골라 바로 돌려주고, 요청을 받은 이 인스턴스가 초당 ratePerSecond 건씩 재처리 요청을 기록한다.
-     * syncJobIds 가 비면 DEAD_LETTER 인 REGISTER 전체. 재처리 조건 밖이거나 없는 작업은 건너뛴 수로 세고,
-     * errorCodeFilter 에 맞지 않는 작업은 대상이 아니라 세지 않는다.
+     * 대상을 골라 바로 돌려주고, 이 인스턴스가 초당 ratePerSecond 건씩 재처리 요청을 기록한다(한 번에 최대 MAX_BATCH_SIZE).
+     * syncJobIds 를 비우면 DEAD_LETTER 인 REGISTER 를 id 순으로. 남은 것은 다시 요청하면 이어진다.
+     * 재처리 조건 밖이거나 없는 작업은 건너뛴 수로 세고, errorCodeFilter 에 맞지 않는 작업은 세지 않는다.
      */
     public BatchReprocess reprocessBatch(List<Long> syncJobIds, String errorCodeFilter, int ratePerSecond,
                                          String requestedBy) {
-        boolean all = syncJobIds == null || syncJobIds.isEmpty();
-        List<PreorderSyncJob> candidates = all
-                ? syncJobs.findByJobTypeAndStatusOrderById(SyncJobType.REGISTER, SyncJobStatus.DEAD_LETTER)
-                : syncJobs.findAllById(syncJobIds);
-        int missing = all ? 0 : (int) syncJobIds.stream().distinct().count() - candidates.size();
-        if (errorCodeFilter != null) {
-            Map<Long, String> lastErrors = syncAttempts.findLastErrorCodes(ids(candidates));
-            candidates = candidates.stream()
-                    .filter(job -> errorCodeFilter.equals(lastErrors.get(job.getId())))
-                    .toList();
+        List<ReprocessCandidate> candidates;
+        int missing = 0;
+        if (syncJobIds == null || syncJobIds.isEmpty()) {
+            candidates = candidateReader.findDeadLetters(errorCodeFilter, MAX_BATCH_SIZE);
+        } else {
+            List<Long> ids = syncJobIds.stream().distinct().toList();
+            if (ids.size() > MAX_BATCH_SIZE) {
+                throw new IllegalArgumentException("한 번에 " + MAX_BATCH_SIZE + " 건까지다: " + ids.size());
+            }
+            candidates = candidateReader.findByIds(ids);
+            missing = ids.size() - candidates.size();
+            if (errorCodeFilter != null) {
+                candidates = candidates.stream().filter(c -> errorCodeFilter.equals(c.lastErrorCode())).toList();
+            }
         }
-        Map<Long, Preorder> owners = preordersOf(candidates);
         List<Long> targets = candidates.stream()
-                .filter(job -> SyncJobReprocessor.blocker(job, owners.get(job.getPreorderId()).getStatus()).isEmpty())
-                .map(PreorderSyncJob::getId)
+                .filter(ReprocessCandidate::reprocessable)
+                .map(ReprocessCandidate::syncJobId)
                 .toList();
         if (!targets.isEmpty()) {
             reprocessExecutor.execute(() -> reprocessPaced(targets, ratePerSecond, requestedBy));

@@ -1,7 +1,6 @@
 package com.grandis.nova.preorder.syncjob;
 
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
@@ -9,7 +8,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -59,18 +57,6 @@ public class SyncAttemptReader {
         String placeholders = syncJobIds.stream().map(id -> "?").collect(Collectors.joining(", "));
         return jdbcTemplate.query(FIND_BY_JOBS.formatted(placeholders), ATTEMPT, syncJobIds.toArray()).stream()
                 .collect(Collectors.groupingBy(SyncAttempt::syncJobId));
-    }
-
-    /** 작업별 마지막 시도의 errorCode. 시도가 없는 작업은 값이 null 이다. */
-    public Map<Long, String> findLastErrorCodes(Collection<Long> syncJobIds) {
-        if (syncJobIds.isEmpty()) {
-            return Map.of();
-        }
-        String placeholders = syncJobIds.stream().map(id -> "?").collect(Collectors.joining(", "));
-        Map<Long, String> codes = new HashMap<>();
-        jdbcTemplate.query(LAST_ERROR_CODES + " WHERE j.id IN (" + placeholders + ")",
-                (RowCallbackHandler) rs -> codes.put(rs.getLong(1), rs.getString(2)), syncJobIds.toArray());
-        return codes;
     }
 
     /** 조건에 맞는 작업을 마지막 시도의 errorCode 로 묶어 센다. 많은 것부터. */
