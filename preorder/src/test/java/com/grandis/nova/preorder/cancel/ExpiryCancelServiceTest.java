@@ -5,7 +5,12 @@ import com.grandis.nova.preorder.accept.PreorderAcceptService;
 import com.grandis.nova.preorder.catalog.CatalogClient;
 import com.grandis.nova.preorder.event.ExternalJobSucceeded;
 import com.grandis.nova.preorder.event.PreorderEventHandler;
+import com.grandis.nova.preorder.preorder.CancelReason;
+import com.grandis.nova.preorder.preorder.EventActor;
+import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.support.AcceptFixtures;
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +36,12 @@ class ExpiryCancelServiceTest {
 
     @Autowired
     PreorderEventHandler handler;
+
+    @Autowired
+    CancelStarter cancelStarter;
+
+    @Autowired
+    PreorderRepository preorders;
 
     @Autowired
     JdbcTemplate jdbcTemplate;
@@ -68,6 +80,37 @@ class ExpiryCancelServiceTest {
     }
 
     @Test
+    void 만료가_동시에_두_번_와도_취소는_한_번만_시작된다() throws Exception {
+        makePayable(25);
+
+        List<Outcome<Object>> outcomes = Concurrently.run(2, i -> () -> {
+            expiryCancelService.expire(token);
+            return null;
+        });
+
+        assertThat(outcomes).allMatch(Outcome::succeeded);
+        assertSingleCancelStart();
+    }
+
+    @Test
+    void 만료와_사용자_취소가_겹쳐도_취소는_한_번만_시작된다() throws Exception {
+        makePayable(25);
+
+        List<Outcome<Object>> outcomes = Concurrently.run(2, i -> () -> {
+            if (i == 0) {
+                expiryCancelService.expire(token);
+            } else {
+                cancelStarter.start(preorders.findById(preorderId).orElseThrow(), EventActor.USER, null,
+                        CancelReason.USER);
+            }
+            return null;
+        });
+
+        assertThat(outcomes).allMatch(Outcome::succeeded);
+        assertSingleCancelStart();
+    }
+
+    @Test
     void 기한_전이면_무시한다() {
         makePayable(23);
 
@@ -95,6 +138,16 @@ class ExpiryCancelServiceTest {
                 token, "REGISTER", "R-" + ShopFixtures.unique()));
         jdbcTemplate.update("UPDATE preorders SET payable_from = UTC_TIMESTAMP(6) - INTERVAL ? HOUR WHERE id = ?",
                 hoursAgo, preorderId);
+    }
+
+    private void assertSingleCancelStart() {
+        assertThat(status()).isEqualTo("CANCELING");
+        assertThat(fixtures.count("""
+                SELECT COUNT(*) FROM preorder_events WHERE preorder_id = ? AND to_status = 'CANCELING'
+                """, preorderId)).isEqualTo(1);
+        assertThat(fixtures.count("""
+                SELECT COUNT(*) FROM outbox_events WHERE event_type = 'PREORDER_CANCEL_REQUESTED' AND aggregate_id = ?
+                """, preorderId)).isEqualTo(1);
     }
 
     private String status() {

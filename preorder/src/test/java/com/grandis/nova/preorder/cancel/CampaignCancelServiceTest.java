@@ -11,6 +11,8 @@ import com.grandis.nova.preorder.preorder.CancelReason;
 import com.grandis.nova.preorder.preorder.EventActor;
 import com.grandis.nova.preorder.preorder.PreorderRepository;
 import com.grandis.nova.preorder.support.AcceptFixtures;
+import com.grandis.nova.preorder.support.Concurrently;
+import com.grandis.nova.preorder.support.Concurrently.Outcome;
 import com.grandis.nova.preorder.support.PreorderIntegrationTest;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
@@ -19,16 +21,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -38,7 +44,7 @@ class CampaignCancelServiceTest {
     @Autowired
     CampaignCancelService campaignCancelService;
 
-    @Autowired
+    @MockitoSpyBean
     CancelStarter cancelStarter;
 
     @Autowired
@@ -110,6 +116,57 @@ class CampaignCancelServiceTest {
         campaignCancelService.cancel(product.productId(), "공급 차질");
 
         assertThat(statuses()).hasSize(CampaignCancelService.BATCH_SIZE + 1).containsOnly("CANCELING");
+    }
+
+    @Test
+    void 중간에_멈춘_뒤_같은_이벤트를_다시_받으면_남은_예약만_이어서_취소한다() {
+        List<Long> ids = IntStream.rangeClosed(0, CampaignCancelService.BATCH_SIZE)
+                .mapToObj(i -> accept().preorder().getId())
+                .toList();
+        AtomicInteger starts = new AtomicInteger();
+        willAnswer(invocation -> {
+            if (starts.incrementAndGet() == CampaignCancelService.BATCH_SIZE + 1) {
+                throw new IllegalStateException("두 번째 묶음에서 한 번 멈춤");
+            }
+            return invocation.callRealMethod();
+        }).given(cancelStarter).start(any(), any(), any(), any());
+
+        assertThatThrownBy(() -> campaignCancelService.cancel(product.productId(), "공급 차질"))
+                .isInstanceOf(IllegalStateException.class);
+        Instant closedAt = closesAt();
+        assertThat(statuses()).containsOnlyOnce("PENDING_SYNC");
+
+        campaignCancelService.cancel(product.productId(), "공급 차질");
+
+        assertThat(statuses()).containsOnly("CANCELING");
+        assertThat(ids).allSatisfy(id -> {
+            assertThat(cancelingEvents(id)).hasSize(1);
+            assertThat(outboxReasons(id)).containsExactly("CAMPAIGN_CANCELED");
+        });
+        assertThat(closesAt()).as("다시 받아도 첫 마감 시각을 유지한다").isEqualTo(closedAt);
+    }
+
+    @Test
+    void 접수와_판매_중지가_겹쳐도_진행_중인_예약이_남지_않는다() throws Exception {
+        accepts.stubCatalog(product);
+        List<Long> customers = IntStream.range(0, 8).mapToObj(i -> fixtures.customer()).toList();
+
+        List<Outcome<Object>> outcomes = Concurrently.run(customers.size() + 1, i -> () -> {
+            if (i == customers.size()) {
+                campaignCancelService.cancel(product.productId(), "공급 차질");
+                return null;
+            }
+            return accepts.submit(customers.get(i), product);
+        });
+
+        assertThat(outcomes).allSatisfy(outcome -> {
+            if (!outcome.succeeded()) {
+                assertThat(outcome.error()).isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(PreorderErrorCode.SALE_CLOSED));
+            }
+        });
+        long accepted = outcomes.stream().filter(o -> o.succeeded() && o.value() != null).count();
+        assertThat(statuses()).hasSize((int) accepted).doesNotContain("PENDING_SYNC", "PAYABLE");
     }
 
     @Test
