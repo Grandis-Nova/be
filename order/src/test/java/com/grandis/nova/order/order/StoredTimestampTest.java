@@ -1,0 +1,87 @@
+package com.grandis.nova.order.order;
+
+import com.grandis.nova.order.config.JpaAuditingConfig;
+import com.grandis.nova.order.order.domain.enums.OrderStatus;
+import com.grandis.nova.order.order.domain.enums.OrderTrigger;
+import com.grandis.nova.order.order.domain.model.Order;
+import com.grandis.nova.order.order.domain.repository.OrderReader;
+import com.grandis.nova.order.order.vo.EventCause;
+import com.grandis.nova.order.support.OrderFixtures;
+import com.grandis.nova.order.support.OrderFixtures.PreorderProduct;
+import com.grandis.nova.order.support.OrderIntegrationTest;
+import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.EnumSet;
+import java.util.List;
+
+import static com.grandis.nova.order.support.OrderFixtures.preorderCommand;
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 저장한 시각과 DB 에 들어간 시각이 같은가. Linux JVM 처럼 나노초를 주는 시계로 돌린다 —
+ * macOS 시계는 마이크로초라 이 어긋남을 로컬에서 볼 수 없다.
+ */
+@OrderIntegrationTest
+@Import(StoredTimestampTest.NanosecondClock.class)
+@Transactional
+class StoredTimestampTest {
+
+    /** 마이크로초 아래가 .9 — 반올림되면 다음 마이크로초가 된다. */
+    static final Instant NANOS = Instant.parse("2026-01-01T00:00:00.000000900Z");
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class NanosecondClock {
+
+        @Bean
+        @Primary
+        Clock nanosecondClock() {
+            return JpaAuditingConfig.atStorageResolution(Clock.fixed(NANOS, ZoneOffset.UTC));
+        }
+    }
+
+    @Autowired
+    OrderLedger ledger;
+
+    @Autowired
+    OrderReader reader;
+
+    @Autowired
+    EntityManager entityManager;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Test
+    void timestampsReturnedByLedgerEqualWhatDatabaseStored() {
+        OrderFixtures fixtures = new OrderFixtures(jdbcTemplate);
+        PreorderProduct product = fixtures.preorderProduct();
+        Long customerId = fixtures.customer();
+        Long preorderId = fixtures.payablePreorder(customerId, product, 1);
+
+        Order placed = ledger.place(preorderCommand(customerId, preorderId, product).toDraft(), EventCause.user());
+        ledger.fire(placed.id(), OrderTrigger.CANCEL_REQUESTED, EnumSet.of(OrderStatus.AWAITING_PAYMENT),
+                EventCause.system("USER"));
+        entityManager.clear();
+
+        Order loaded = reader.findById(placed.id()).orElseThrow();
+        assertThat(loaded.createdAt()).isEqualTo(placed.createdAt());
+        List<Instant> eventTimes = jdbcTemplate.query(
+                "SELECT created_at FROM order_events WHERE order_id = ? ORDER BY event_sequence",
+                // DB 는 UTC 벽시계 시각을 담는다. getTimestamp 는 JVM 시간대로 읽으므로 쓰지 않는다
+                (rs, n) -> rs.getObject(1, LocalDateTime.class).toInstant(ZoneOffset.UTC), placed.id());
+        assertThat(eventTimes).containsOnly(placed.createdAt());
+        assertThat(placed.createdAt()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+    }
+}
