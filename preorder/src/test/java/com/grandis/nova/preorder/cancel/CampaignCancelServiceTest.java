@@ -4,6 +4,7 @@ import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.preorder.PreorderErrorCode;
 import com.grandis.nova.preorder.accept.AcceptResult;
 import com.grandis.nova.preorder.accept.PreorderAcceptService;
+import com.grandis.nova.preorder.campaign.PreorderCampaignRepository;
 import com.grandis.nova.preorder.catalog.CatalogClient;
 import com.grandis.nova.preorder.event.ExternalJobSucceeded;
 import com.grandis.nova.preorder.event.PreorderEventHandler;
@@ -17,6 +18,7 @@ import com.grandis.nova.preorder.support.ShopFixtures;
 import com.grandis.nova.preorder.support.ShopFixtures.PreorderProduct;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -42,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -56,6 +59,9 @@ class CampaignCancelServiceTest {
 
     @MockitoSpyBean
     PreorderLedger ledger;
+
+    @MockitoSpyBean
+    PreorderCampaignRepository campaigns;
 
     @Autowired
     PreorderAcceptService acceptService;
@@ -162,6 +168,7 @@ class CampaignCancelServiceTest {
         accepts.stubCatalog(product);
         Long customer = fixtures.customer();
         CountDownLatch acceptLocked = new CountDownLatch(1);
+        CountDownLatch cancelWaiting = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         willAnswer(invocation -> {
             acceptLocked.countDown();
@@ -174,7 +181,14 @@ class CampaignCancelServiceTest {
             Future<?> canceling;
             try {
                 assertThat(acceptLocked.await(10, TimeUnit.SECONDS)).isTrue();
+                // 접수는 이미 회차를 잠갔으므로 이 뒤의 잠금 조회는 판매 중지의 것이다. 원래 저장소로 넘기는 기본 응답을 쓴다
+                Answer<?> delegate = mockingDetails(campaigns).getMockCreationSettings().getDefaultAnswer();
+                willAnswer(invocation -> {
+                    cancelWaiting.countDown();
+                    return delegate.answer(invocation);
+                }).given(campaigns).findForUpdate(any());
                 canceling = executor.submit(() -> campaignCancelService.cancel(product.productId(), "공급 차질"));
+                assertThat(cancelWaiting.await(10, TimeUnit.SECONDS)).isTrue();
                 await().alias("접수가 회차를 잠근 동안 판매 중지는 끝나지 않는다")
                         .during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(5))
                         .until(() -> !canceling.isDone());
