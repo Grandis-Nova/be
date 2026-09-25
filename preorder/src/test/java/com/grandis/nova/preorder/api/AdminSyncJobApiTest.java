@@ -1,0 +1,233 @@
+package com.grandis.nova.preorder.api;
+
+import com.grandis.nova.preorder.accept.AcceptResult;
+import com.grandis.nova.preorder.accept.PreorderAcceptService;
+import com.grandis.nova.preorder.cancel.CancelStarter;
+import com.grandis.nova.preorder.catalog.CatalogClient;
+import com.grandis.nova.preorder.preorder.CancelReason;
+import com.grandis.nova.preorder.preorder.EventActor;
+import com.grandis.nova.preorder.preorder.PreorderRepository;
+import com.grandis.nova.preorder.support.AcceptFixtures;
+import com.grandis.nova.preorder.support.PreorderIntegrationTest;
+import com.grandis.nova.preorder.support.ShopFixtures;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** DB 를 테스트끼리 공유하므로 목록 · 묶음 단정은 이 테스트가 만든 예약 · 고유한 오류 코드로만 한다. */
+@PreorderIntegrationTest
+@AutoConfigureMockMvc
+class AdminSyncJobApiTest {
+
+    @Autowired
+    MockMvc mockMvc;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    PreorderAcceptService acceptService;
+
+    @Autowired
+    CancelStarter cancelStarter;
+
+    @Autowired
+    PreorderRepository preorders;
+
+    @MockitoBean
+    CatalogClient catalogClient;
+
+    ShopFixtures fixtures;
+    AcceptFixtures accepts;
+    Long preorderId;
+    String token;
+
+    @BeforeEach
+    void setUp() {
+        fixtures = new ShopFixtures(jdbcTemplate);
+        accepts = new AcceptFixtures(acceptService, fixtures, catalogClient);
+        AcceptResult accepted = accepts.accept(fixtures.customer());
+        preorderId = accepted.preorder().getId();
+        token = AcceptFixtures.tokenOf(accepted);
+    }
+
+    @Test
+    void 목록은_상태_예약으로_거르고_시도_수와_마지막_오류_코드를_준다() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+        fixtures.syncAttempt(jobId, 1, "TRANSIENT_FAILURE", 503, "HTTP_503");
+        fixtures.syncAttempt(jobId, 2, "REJECTED", 422, "MOCK_REJECTED");
+
+        admin(get("/api/v1/admin/sync-jobs").param("status", "DEAD_LETTER").param("preorderId", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].syncJobId").value(jobId))
+                .andExpect(jsonPath("$.data.items[0].preorderId").value(token))
+                .andExpect(jsonPath("$.data.items[0].jobType").value("REGISTER"))
+                .andExpect(jsonPath("$.data.items[0].attemptCount").value(2))
+                .andExpect(jsonPath("$.data.items[0].lastErrorCode").value("MOCK_REJECTED"))
+                .andExpect(jsonPath("$.data.items[0].deadLetteredAt").exists())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.errorGroups").value(nullValue()));
+        admin(get("/api/v1/admin/sync-jobs").param("status", "PENDING").param("preorderId", token))
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+        admin(get("/api/v1/admin/sync-jobs").param("preorderId", ShopFixtures.unique()))
+                .andExpect(jsonPath("$.data.items", hasSize(0)))
+                .andExpect(jsonPath("$.data.total").value(0));
+    }
+
+    @Test
+    void groupByError_면_마지막_시도의_오류_코드로_묶은_건수를_준다() throws Exception {
+        String code = "E-" + ShopFixtures.unique();
+        for (int i = 0; i < 2; i++) {
+            Long jobId = fixtures.deadLetter(accepts.accept(fixtures.customer()).preorder().getId());
+            fixtures.syncAttempt(jobId, 1, "TRANSIENT_FAILURE", 503, "HTTP_503");
+            fixtures.syncAttempt(jobId, 2, "REJECTED", 422, code);
+        }
+
+        admin(get("/api/v1/admin/sync-jobs").param("status", "DEAD_LETTER").param("groupByError", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.errorGroups[?(@.errorCode == '%s')].count".formatted(code), contains(2)));
+    }
+
+    @Test
+    void 상세는_요청_본문을_객체로_시도_기록과_함께_준다() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+        fixtures.syncAttempt(jobId, 1, "REJECTED", 422, "MOCK_REJECTED");
+
+        admin(get("/api/v1/admin/sync-jobs/{id}", jobId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.syncJobId").value(jobId))
+                .andExpect(jsonPath("$.data.requestPayload.ourReservationId").value(token))
+                .andExpect(jsonPath("$.data.attempts", hasSize(1)))
+                .andExpect(jsonPath("$.data.attempts[0].errorCode").value("MOCK_REJECTED"));
+        admin(get("/api/v1/admin/sync-jobs/{id}", Long.MAX_VALUE))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SYNC_JOB_NOT_FOUND"));
+    }
+
+    @Test
+    void DEAD_LETTER_인_등록_작업은_202_로_재처리_요청을_남긴다() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+
+        admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.syncJobId").value(jobId))
+                .andExpect(jsonPath("$.data.status").value("DEAD_LETTER"));
+
+        assertThat(reprocessRequests(jobId)).containsExactly(Map.of("syncJobId", jobId, "requestedBy", "admin"));
+    }
+
+    @Test
+    void 재처리_조건_밖이면_409_와_사유() throws Exception {
+        Long jobId = jdbcTemplate.queryForObject(
+                "SELECT id FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'REGISTER'", Long.class,
+                preorderId);
+
+        admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SYNC_JOB_NOT_REPROCESSABLE"))
+                .andExpect(jsonPath("$.error.details.reason").value("jobType=REGISTER, status=PENDING"));
+
+        cancelStarter.start(preorders.findById(preorderId).orElseThrow(), EventActor.USER, null, CancelReason.USER);
+        fixtures.deadLetter(preorderId);
+        admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.details.reason").value("preorderStatus=CANCELING"));
+
+        assertThat(reprocessRequests(jobId)).isEmpty();
+    }
+
+    @Test
+    void 관리자가_아니면_403_토큰이_없으면_401() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/sync-jobs").with(user("1").roles("USER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/admin/sync-jobs/{id}/reprocess", 1L))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 일괄_재처리는_대상과_건너뛴_수를_바로_주고_요청을_이어서_남긴다() throws Exception {
+        Long first = fixtures.deadLetter(preorderId);
+        Long second = fixtures.deadLetter(accepts.accept(fixtures.customer()).preorder().getId());
+        Long pending = jdbcTemplate.queryForObject(
+                "SELECT id FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'REGISTER'", Long.class,
+                accepts.accept(fixtures.customer()).preorder().getId());
+
+        String body = "{\"syncJobIds\":[%d,%d,%d,%d],\"ratePerSecond\":200}"
+                .formatted(first, second, pending, Long.MAX_VALUE);
+        batch(body)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.targetCount").value(2))
+                .andExpect(jsonPath("$.data.skippedCount").value(2))
+                .andExpect(jsonPath("$.data.estimatedSeconds").value(1));
+
+        await().atMost(Duration.ofSeconds(5))
+                .until(() -> reprocessRequests(first).size() == 1 && reprocessRequests(second).size() == 1);
+        assertThat(reprocessRequests(pending)).isEmpty();
+    }
+
+    @Test
+    void 일괄_재처리를_오류_코드로_거른다() throws Exception {
+        String code = "E-" + ShopFixtures.unique();
+        Long matching = fixtures.deadLetter(preorderId);
+        fixtures.syncAttempt(matching, 1, "REJECTED", 422, code);
+        Long other = fixtures.deadLetter(accepts.accept(fixtures.customer()).preorder().getId());
+        fixtures.syncAttempt(other, 1, "REJECTED", 422, "OTHER");
+
+        batch("{\"errorCodeFilter\":\"%s\"}".formatted(code))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.targetCount").value(1))
+                .andExpect(jsonPath("$.data.skippedCount").value(0));
+
+        await().atMost(Duration.ofSeconds(5)).until(() -> reprocessRequests(matching).size() == 1);
+        assertThat(reprocessRequests(other)).isEmpty();
+    }
+
+    @Test
+    void 초당_건수는_1에서_200_사이다() throws Exception {
+        batch("{\"ratePerSecond\":0}").andExpect(status().isBadRequest());
+        batch("{\"ratePerSecond\":201}").andExpect(status().isBadRequest());
+    }
+
+    private ResultActions batch(String body) throws Exception {
+        return admin(post("/api/v1/admin/sync-jobs/reprocess-batch")
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    private ResultActions admin(MockHttpServletRequestBuilder request) throws Exception {
+        return mockMvc.perform(request.with(user("admin").roles("ADMIN")));
+    }
+
+    private List<Map<String, Object>> reprocessRequests(Long syncJobId) {
+        return jdbcTemplate.queryForList("""
+                SELECT CAST(JSON_EXTRACT(payload, '$.syncJobId') AS UNSIGNED) AS syncJobId,
+                       JSON_UNQUOTE(JSON_EXTRACT(payload, '$.requestedBy')) AS requestedBy
+                  FROM outbox_events WHERE event_type = 'SYNC_JOB_REPROCESS_REQUESTED' AND aggregate_id = ?
+                """, syncJobId).stream()
+                .map(row -> Map.<String, Object>of("syncJobId", ((Number) row.get("syncJobId")).longValue(),
+                        "requestedBy", row.get("requestedBy")))
+                .toList();
+    }
+}

@@ -1,5 +1,6 @@
 package com.grandis.nova.preorder.api;
 
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import com.grandis.nova.preorder.syncjob.PreorderSyncJob;
 import com.grandis.nova.preorder.syncjob.SyncAttempt;
 import com.grandis.nova.preorder.syncjob.SyncJobStatus;
@@ -23,7 +24,7 @@ public record SyncJobResponse(
         Instant deadLetteredAt,
         Instant createdAt,
         Instant updatedAt,
-        String requestPayload,
+        @JsonRawValue String requestPayload,
         List<SyncAttemptResponse> attempts
 ) {
 

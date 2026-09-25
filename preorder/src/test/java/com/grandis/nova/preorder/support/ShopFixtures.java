@@ -121,6 +121,17 @@ public class ShopFixtures {
                 """, Long.class, preorderId);
     }
 
+    /** worker 가 등록을 포기한 것처럼 예약의 REGISTER 작업을 DEAD_LETTER 로 만든다. @return 그 작업의 id */
+    public Long deadLetter(Long preorderId) {
+        Long jobId = jdbcTemplate.queryForObject(
+                "SELECT id FROM preorder_sync_jobs WHERE preorder_id = ? AND job_type = 'REGISTER'", Long.class,
+                preorderId);
+        jdbcTemplate.update("""
+                UPDATE preorder_sync_jobs SET status = 'DEAD_LETTER', dead_lettered_at = UTC_TIMESTAMP(6) WHERE id = ?
+                """, jobId);
+        return jobId;
+    }
+
     /** 확인용 건수 조회. */
     public int count(String sql, Object... args) {
         return jdbcTemplate.queryForObject(sql, Integer.class, args);

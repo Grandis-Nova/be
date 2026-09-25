@@ -1,6 +1,7 @@
 package com.grandis.nova.preorder.syncjob;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -10,7 +11,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-public interface PreorderSyncJobRepository extends JpaRepository<PreorderSyncJob, Long> {
+public interface PreorderSyncJobRepository extends JpaRepository<PreorderSyncJob, Long>,
+        JpaSpecificationExecutor<PreorderSyncJob> {
 
     /** 끝난 REGISTER 작업. 무효화하지 않는다. */
     List<SyncJobStatus> REGISTER_FINISHED = List.of(SyncJobStatus.SUCCEEDED, SyncJobStatus.CANCELED);
@@ -41,4 +43,7 @@ public interface PreorderSyncJobRepository extends JpaRepository<PreorderSyncJob
     int cancelUnfinished(@Param("preorderId") Long preorderId, @Param("jobType") SyncJobType jobType,
                          @Param("finished") Collection<SyncJobStatus> finished,
                          @Param("canceled") SyncJobStatus canceled, @Param("now") Instant now);
+
+    /** 일괄 재처리 대상 전체(REGISTER · DEAD_LETTER). */
+    List<PreorderSyncJob> findByJobTypeAndStatusOrderById(SyncJobType jobType, SyncJobStatus status);
 }

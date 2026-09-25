@@ -1,12 +1,15 @@
 package com.grandis.nova.preorder.syncjob;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -33,6 +36,15 @@ public class SyncAttemptReader {
             rs.getObject(5, Integer.class), rs.getString(6), rs.getString(7),
             rs.getTimestamp(8).toInstant(), instantOrNull(rs.getTimestamp(9)));
 
+    /** 작업마다 마지막 시도 하나를 붙인다. 시도가 없는 작업은 error_code 가 NULL 이다. */
+    private static final String LAST_ERROR_CODES = """
+            SELECT j.id, a.error_code
+              FROM preorder_sync_jobs j
+              LEFT JOIN preorder_sync_attempts a ON a.sync_job_id = j.id
+                   AND a.attempt_number = (SELECT MAX(b.attempt_number) FROM preorder_sync_attempts b
+                                            WHERE b.sync_job_id = j.id)
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     public SyncAttemptReader(JdbcTemplate jdbcTemplate) {
@@ -47,6 +59,40 @@ public class SyncAttemptReader {
         String placeholders = syncJobIds.stream().map(id -> "?").collect(Collectors.joining(", "));
         return jdbcTemplate.query(FIND_BY_JOBS.formatted(placeholders), ATTEMPT, syncJobIds.toArray()).stream()
                 .collect(Collectors.groupingBy(SyncAttempt::syncJobId));
+    }
+
+    /** 작업별 마지막 시도의 errorCode. 시도가 없는 작업은 값이 null 이다. */
+    public Map<Long, String> findLastErrorCodes(Collection<Long> syncJobIds) {
+        if (syncJobIds.isEmpty()) {
+            return Map.of();
+        }
+        String placeholders = syncJobIds.stream().map(id -> "?").collect(Collectors.joining(", "));
+        Map<Long, String> codes = new HashMap<>();
+        jdbcTemplate.query(LAST_ERROR_CODES + " WHERE j.id IN (" + placeholders + ")",
+                (RowCallbackHandler) rs -> codes.put(rs.getLong(1), rs.getString(2)), syncJobIds.toArray());
+        return codes;
+    }
+
+    /** 조건에 맞는 작업을 마지막 시도의 errorCode 로 묶어 센다. 많은 것부터. */
+    public List<ErrorGroup> countByLastErrorCode(SyncJobFilter filter) {
+        List<String> conditions = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (filter.jobType() != null) {
+            conditions.add("j.job_type = ?");
+            args.add(filter.jobType().name());
+        }
+        if (filter.status() != null) {
+            conditions.add("j.status = ?");
+            args.add(filter.status().name());
+        }
+        if (filter.preorderId() != null) {
+            conditions.add("j.preorder_id = ?");
+            args.add(filter.preorderId());
+        }
+        String where = conditions.isEmpty() ? "" : " WHERE " + String.join(" AND ", conditions);
+        String sql = "SELECT error_code, COUNT(*) FROM (" + LAST_ERROR_CODES + where + ") last"
+                + " GROUP BY error_code ORDER BY COUNT(*) DESC, error_code";
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new ErrorGroup(rs.getString(1), rs.getLong(2)), args.toArray());
     }
 
     private static Instant instantOrNull(Timestamp timestamp) {
