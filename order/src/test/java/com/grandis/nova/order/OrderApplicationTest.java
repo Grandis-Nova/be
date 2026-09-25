@@ -1,5 +1,6 @@
 package com.grandis.nova.order;
 
+import com.grandis.nova.order.config.JpaAuditingConfig;
 import com.grandis.nova.order.config.TransactionIsolationVerifier;
 import com.grandis.nova.order.support.OrderIntegrationTest;
 import org.junit.jupiter.api.Test;
@@ -7,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.time.Clock;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -20,6 +22,9 @@ class OrderApplicationTest {
     @Autowired
     ApplicationContext context;
 
+    @Autowired
+    Clock clock;
+
     @Test
     void contextLoadsWithReadCommittedIsolation() {
         assertThat(jdbcTemplate.queryForObject("SELECT @@transaction_isolation", String.class))
@@ -30,6 +35,15 @@ class OrderApplicationTest {
     @Test
     void isolationVerifierIsRegistered() {
         assertThat(context.getBeansOfType(TransactionIsolationVerifier.class)).hasSize(1);
+    }
+
+    /*
+     * 운영 컨텍스트의 시계가 저장 해상도(마이크로초)로 내린 시계인가. 시각을 보고 판정하면 macOS(마이크로초 시계)에서
+     * 늘 통과하므로 빈 자체를 비교한다. 다른 모듈의 clock 빈으로 바뀌어도 여기서 드러난다.
+     */
+    @Test
+    void applicationClockIsAtStorageResolution() {
+        assertThat(clock).isEqualTo(JpaAuditingConfig.atStorageResolution(Clock.systemUTC()));
     }
 
     @Test
