@@ -1,5 +1,7 @@
 package com.grandis.nova.preorder.event;
 
+import com.grandis.nova.preorder.cancel.CampaignCancelService;
+import com.grandis.nova.preorder.cancel.ExpiryCancelService;
 import com.grandis.nova.preorder.outbox.EventEnvelope;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -13,10 +15,15 @@ import tools.jackson.databind.json.JsonMapper;
 public class PreorderEventDispatcher {
 
     private final PreorderEventHandler handler;
+    private final ExpiryCancelService expiryCancelService;
+    private final CampaignCancelService campaignCancelService;
     private final JsonMapper jsonMapper;
 
-    public PreorderEventDispatcher(PreorderEventHandler handler, JsonMapper jsonMapper) {
+    public PreorderEventDispatcher(PreorderEventHandler handler, ExpiryCancelService expiryCancelService,
+                                   CampaignCancelService campaignCancelService, JsonMapper jsonMapper) {
         this.handler = handler;
+        this.expiryCancelService = expiryCancelService;
+        this.campaignCancelService = campaignCancelService;
         this.jsonMapper = jsonMapper;
     }
 
@@ -28,6 +35,13 @@ public class PreorderEventDispatcher {
                     jsonMapper.treeToValue(envelope.payload(), ExternalJobSucceeded.class));
             case PREORDER_ORDER_SETTLED -> handler.onOrderSettled(
                     jsonMapper.treeToValue(envelope.payload(), PreorderOrderSettled.class));
+            case PREORDER_EXPIRY_REQUESTED -> expiryCancelService.expire(
+                    jsonMapper.treeToValue(envelope.payload(), PreorderExpiryRequested.class).preorderId());
+            case PREORDER_CAMPAIGN_CANCELED -> {
+                PreorderCampaignCanceled canceled =
+                        jsonMapper.treeToValue(envelope.payload(), PreorderCampaignCanceled.class);
+                campaignCancelService.cancel(canceled.productId(), canceled.reason());
+            }
         }
     }
 }

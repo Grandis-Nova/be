@@ -26,7 +26,11 @@ public class AcceptFixtures {
     }
 
     public AcceptResult accept(Long customerId) {
-        PreorderProduct product = fixtures.openPreorderProduct();
+        return accept(customerId, fixtures.openPreorderProduct());
+    }
+
+    /** 같은 상품에 여러 예약을 만들 때 쓴다. */
+    public AcceptResult accept(Long customerId, PreorderProduct product) {
         given(catalogClient.getProduct(product.productId())).willReturn(CatalogStubs.preorderProduct(
                 product.productId(), CatalogStubs.activeOption(product.optionId())));
         return acceptService.acceptByCustomer(customerId, product.productId(), product.productId(),

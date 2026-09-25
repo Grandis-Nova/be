@@ -2,13 +2,18 @@ package com.grandis.nova.preorder.preorder;
 
 import com.grandis.nova.common.BusinessException;
 import com.grandis.nova.preorder.PreorderErrorCode;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -87,4 +92,13 @@ public interface PreorderRepository extends JpaRepository<Preorder, Long>, JpaSp
     /** 방금 올린 이력 번호. 같은 트랜잭션의 UPDATE 가 행을 잠그고 있으므로 다른 트랜잭션이 끼어들 수 없다. */
     @Query("select p.eventSequence from Preorder p where p.id = :id")
     long findEventSequence(@Param("id") Long id);
+
+    /** 예약 행을 잠그고 읽는다. 트랜잭션에서 처음 읽을 때 불러야 잠근 뒤의 최신 값을 받는다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Preorder p where p.preorderToken = :token")
+    Optional<Preorder> findForUpdateByPreorderToken(@Param("token") String token);
+
+    /** 상품의 예약을 순번 순으로 읽는다. uq_preorder_position(product_id, queue_position) 을 탄다. */
+    List<Preorder> findByProductIdAndStatusInOrderByQueuePosition(Long productId, Collection<PreorderStatus> statuses,
+                                                                   Limit limit);
 }
