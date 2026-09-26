@@ -7,8 +7,9 @@ import com.grandis.nova.preorder.outbox.OutboxEvent;
 import com.grandis.nova.preorder.outbox.OutboxMessage.RegisterJobReady;
 import com.grandis.nova.preorder.outbox.OutboxWriter;
 import com.grandis.nova.preorder.support.AcceptFixtures;
-import com.grandis.nova.preorder.support.FlociSqs;
-import com.grandis.nova.preorder.support.PreorderIntegrationTest;
+import com.grandis.nova.preorder.support.SqsIntegrationTest;
+import com.grandis.nova.preorder.support.TestQueues;
+import com.grandis.nova.preorder.support.containers.FlociTestContainer;
 import com.grandis.nova.preorder.support.ShopFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,25 +21,26 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.services.sqs.model.Message;
-import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /** 실제 SQS 프로토콜(Floci)로 발행 · 소비 · DLQ 와 흐름 ①(접수 → 외부 등록 → 결제 가능)을 확인한다. */
-@PreorderIntegrationTest
-class SqsIntegrationTest extends FlociSqs {
+@SqsIntegrationTest
+class SqsMessagingTest {
 
     static final Duration TIMEOUT = Duration.ofSeconds(15);
 
     @Autowired
     OutboxWriter writer;
+
+    @Autowired
+    TestQueues queues;
 
     @Autowired
     PreorderAcceptService acceptService;
@@ -68,7 +70,7 @@ class SqsIntegrationTest extends FlociSqs {
         OutboxEvent event = transactionTemplate.execute(status ->
                 writer.append(new RegisterJobReady(syncJobId, "9f1c2d3e")));
 
-        Message message = receive("preorder-register", m -> m.body().contains(event.getEventId()), TIMEOUT)
+        Message message = queues.receive("preorder-register", m -> m.body().contains(event.getEventId()), TIMEOUT)
                 .orElseThrow();
 
         JsonNode body = jsonMapper.readTree(message.body());
@@ -83,24 +85,24 @@ class SqsIntegrationTest extends FlociSqs {
         Long preorderId = accepted.preorder().getId();
         String externalNumber = "R-" + ShopFixtures.unique();
 
-        send("preorder-events", externalJobSucceeded(fixtures.workerSucceeds(preorderId, "REGISTER"),
+        queues.send("preorder-events", externalJobSucceeded(fixtures.workerSucceeds(preorderId, "REGISTER"),
                 AcceptFixtures.tokenOf(accepted), externalNumber));
 
         await().atMost(TIMEOUT).until(() -> "PAYABLE".equals(status(preorderId)));
         assertThat(jdbcTemplate.queryForObject("SELECT external_reference FROM preorders WHERE id = ?",
                 String.class, preorderId)).isEqualTo(externalNumber);
         await().alias("처리한 메시지는 숨김도 대기도 아닌, 큐에서 사라진다").atMost(TIMEOUT)
-                .until(() -> messagesIn("preorder-events") == 0);
+                .until(() -> queues.messagesIn("preorder-events") == 0);
     }
 
     @Test
     void 처리하지_못하는_메시지는_다시_받다가_DLQ_로_간다() {
         String poison = "not-json-" + ShopFixtures.unique();
 
-        send("preorder-events", poison);
+        queues.send("preorder-events", poison);
 
-        assertThat(receive("preorder-events-dlq", m -> m.body().equals(poison), Duration.ofSeconds(30)))
-                .as("%d 번 받고도 처리하지 못하면 DLQ", MAX_RECEIVE_COUNT)
+        assertThat(queues.receive("preorder-events-dlq", m -> m.body().equals(poison), Duration.ofSeconds(30)))
+                .as("%d 번 받고도 처리하지 못하면 DLQ", FlociTestContainer.MAX_RECEIVE_COUNT)
                 .isPresent();
     }
 
@@ -119,12 +121,12 @@ class SqsIntegrationTest extends FlociSqs {
         Long preorderId = accepted.preorder().getId();
         String token = AcceptFixtures.tokenOf(accepted);
 
-        Message registerJobReady = receive("preorder-register", m -> m.body().contains(token), TIMEOUT)
+        Message registerJobReady = queues.receive("preorder-register", m -> m.body().contains(token), TIMEOUT)
                 .orElseThrow();
         long syncJobId = jsonMapper.readTree(registerJobReady.body()).get("payload").get("syncJobId").asLong();
         assertThat(syncJobId).isEqualTo(fixtures.workerSucceeds(preorderId, "REGISTER"));
 
-        send("preorder-events", externalJobSucceeded(syncJobId, token, "R-" + ShopFixtures.unique()));
+        queues.send("preorder-events", externalJobSucceeded(syncJobId, token, "R-" + ShopFixtures.unique()));
 
         await().atMost(TIMEOUT).until(() -> "PAYABLE".equals(status(preorderId)));
     }
@@ -135,16 +137,6 @@ class SqsIntegrationTest extends FlociSqs {
                  "aggregateId":%d,"occurredAt":"2026-09-03T01:00:03.470Z",
                  "payload":{"syncJobId":%d,"preorderId":"%s","jobType":"REGISTER","externalNumber":"%s"}}
                 """.formatted(ShopFixtures.unique(), syncJobId, syncJobId, token, externalNumber);
-    }
-
-    /** 대기 중 + 받았지만 아직 지우지 않은 메시지 수. */
-    private static int messagesIn(String queue) {
-        Map<QueueAttributeName, String> attributes = SQS.getQueueAttributes(request -> request
-                .queueUrl(queueUrl(queue))
-                .attributeNames(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES,
-                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE)).attributes();
-        return Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES))
-                + Integer.parseInt(attributes.get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE));
     }
 
     private String status(Long preorderId) {
