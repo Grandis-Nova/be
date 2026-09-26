@@ -80,19 +80,42 @@ class SqsMessagingTest {
     }
 
     @Test
-    void 받은_이벤트를_처리하면_큐에서_지운다() {
+    void 받은_이벤트를_처리하면_그_메시지를_큐에서_지운다() {
         AcceptResult accepted = new AcceptFixtures(acceptService, fixtures, catalogClient).accept(fixtures.customer());
         Long preorderId = accepted.preorder().getId();
+        String eventId = ShopFixtures.unique();
         String externalNumber = "R-" + ShopFixtures.unique();
 
-        queues.send("preorder-events", externalJobSucceeded(fixtures.workerSucceeds(preorderId, "REGISTER"),
-                AcceptFixtures.tokenOf(accepted), externalNumber));
+        queues.send("preorder-events", externalJobSucceeded(eventId,
+                fixtures.workerSucceeds(preorderId, "REGISTER"), AcceptFixtures.tokenOf(accepted), externalNumber));
 
         await().atMost(TIMEOUT).until(() -> "PAYABLE".equals(status(preorderId)));
         assertThat(jdbcTemplate.queryForObject("SELECT external_reference FROM preorders WHERE id = ?",
                 String.class, preorderId)).isEqualTo(externalNumber);
-        await().alias("처리한 메시지는 숨김도 대기도 아닌, 큐에서 사라진다").atMost(TIMEOUT)
-                .until(() -> queues.messagesIn("preorder-events") == 0);
+        await().alias("처리한 메시지는 숨김도 대기도 아닌, 큐에서 사라진다")
+                .during(Duration.ofSeconds(2)).atMost(TIMEOUT)
+                .until(() -> !queues.contains("preorder-events", m -> m.body().contains(eventId)));
+    }
+
+    /** 같은 메시지가 다시 전달돼도(SQS 는 최소 1회 전달) 상태 전이는 한 번이다. */
+    @Test
+    void 같은_이벤트가_두_번_와도_한_번만_반영된다() {
+        AcceptResult accepted = new AcceptFixtures(acceptService, fixtures, catalogClient).accept(fixtures.customer());
+        Long preorderId = accepted.preorder().getId();
+        String externalNumber = "R-" + ShopFixtures.unique();
+        String body = externalJobSucceeded(ShopFixtures.unique(), fixtures.workerSucceeds(preorderId, "REGISTER"),
+                AcceptFixtures.tokenOf(accepted), externalNumber);
+
+        queues.send("preorder-events", body);
+        queues.send("preorder-events", body);
+
+        await().atMost(TIMEOUT).until(() -> "PAYABLE".equals(status(preorderId)));
+        await().during(Duration.ofSeconds(3)).atMost(TIMEOUT)
+                .until(() -> fixtures.count("""
+                        SELECT COUNT(*) FROM preorder_events WHERE preorder_id = ? AND to_status = 'PAYABLE'
+                        """, preorderId) == 1);
+        assertThat(jdbcTemplate.queryForObject("SELECT external_reference FROM preorders WHERE id = ?",
+                String.class, preorderId)).isEqualTo(externalNumber);
     }
 
     @Test
@@ -126,17 +149,18 @@ class SqsMessagingTest {
         long syncJobId = jsonMapper.readTree(registerJobReady.body()).get("payload").get("syncJobId").asLong();
         assertThat(syncJobId).isEqualTo(fixtures.workerSucceeds(preorderId, "REGISTER"));
 
-        queues.send("preorder-events", externalJobSucceeded(syncJobId, token, "R-" + ShopFixtures.unique()));
+        queues.send("preorder-events",
+                externalJobSucceeded(ShopFixtures.unique(), syncJobId, token, "R-" + ShopFixtures.unique()));
 
         await().atMost(TIMEOUT).until(() -> "PAYABLE".equals(status(preorderId)));
     }
 
-    private String externalJobSucceeded(Long syncJobId, String token, String externalNumber) {
+    private String externalJobSucceeded(String eventId, Long syncJobId, String token, String externalNumber) {
         return """
                 {"eventId":"%s","eventType":"EXTERNAL_JOB_SUCCEEDED","aggregateType":"PREORDER_SYNC_JOB",
                  "aggregateId":%d,"occurredAt":"2026-09-03T01:00:03.470Z",
                  "payload":{"syncJobId":%d,"preorderId":"%s","jobType":"REGISTER","externalNumber":"%s"}}
-                """.formatted(ShopFixtures.unique(), syncJobId, syncJobId, token, externalNumber);
+                """.formatted(eventId, syncJobId, syncJobId, token, externalNumber);
     }
 
     private String status(Long preorderId) {

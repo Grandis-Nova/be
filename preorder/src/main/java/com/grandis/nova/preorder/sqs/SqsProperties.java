@@ -44,12 +44,14 @@ public record SqsProperties(
 
         private static final Duration MAX_VISIBILITY = Duration.ofHours(12);
 
-        /** SQS 가 받는 범위 밖이면 받기가 계속 실패하므로 기동할 때 알린다. */
+        /** SQS 가 받는 범위 밖이거나 대기 설정이 어긋나면 받기 · 재시도가 뜻대로 되지 않으므로 기동할 때 알린다. */
         public Consumer {
             if (concurrency < 1 || maxMessages < 1 || maxMessages > 10 || waitSeconds < 0 || waitSeconds > 20
-                    || visibility.compareTo(MAX_VISIBILITY) > 0 || backoffMax.compareTo(MAX_VISIBILITY) > 0) {
+                    || visibility.compareTo(Duration.ofSeconds(1)) < 0 || visibility.compareTo(MAX_VISIBILITY) > 0
+                    || !backoffBase.isPositive() || backoffBase.compareTo(backoffMax) > 0
+                    || backoffMax.compareTo(MAX_VISIBILITY) > 0) {
                 throw new IllegalArgumentException("nova.sqs.consumer: concurrency >= 1, max-messages 1~10, "
-                        + "wait-seconds 0~20, visibility · backoff-max 12h 이하여야 한다");
+                        + "wait-seconds 0~20, visibility 1s~12h, 0 < backoff-base <= backoff-max <= 12h 여야 한다");
             }
         }
     }
