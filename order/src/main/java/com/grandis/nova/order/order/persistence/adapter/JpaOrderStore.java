@@ -1,24 +1,32 @@
 package com.grandis.nova.order.order.persistence.adapter;
 
+import com.grandis.nova.common.OffsetPage;
 import com.grandis.nova.order.order.domain.enums.OrderStatus;
 import com.grandis.nova.order.order.domain.exception.OrderAlreadyPlacedException;
 import com.grandis.nova.order.order.domain.model.Order;
 import com.grandis.nova.order.order.domain.model.OrderEvent;
 import com.grandis.nova.order.order.domain.model.OrderItem;
 import com.grandis.nova.order.order.domain.model.OrderLine;
+import com.grandis.nova.order.order.domain.repository.AdminOrderFilter;
+import com.grandis.nova.order.order.domain.repository.OrderPosition;
 import com.grandis.nova.order.order.domain.repository.OrderReader;
 import com.grandis.nova.order.order.domain.repository.OrderWriter;
 import com.grandis.nova.order.order.persistence.entity.OrderJpaEntity;
 import com.grandis.nova.order.order.persistence.mapper.OrderMapper;
+import com.grandis.nova.order.order.persistence.repository.OrderEventJpaRepository;
 import com.grandis.nova.order.order.persistence.repository.OrderItemJpaRepository;
 import com.grandis.nova.order.order.persistence.repository.OrderJpaRepository;
+import com.grandis.nova.order.order.persistence.repository.OrderSpecifications;
 import com.grandis.nova.order.order.vo.OrderToken;
 import jakarta.persistence.EntityManager;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,11 +48,14 @@ class JpaOrderStore implements OrderReader, OrderWriter {
 
     private final OrderJpaRepository orders;
     private final OrderItemJpaRepository items;
+    private final OrderEventJpaRepository events;
     private final EntityManager entityManager;
 
-    JpaOrderStore(OrderJpaRepository orders, OrderItemJpaRepository items, EntityManager entityManager) {
+    JpaOrderStore(OrderJpaRepository orders, OrderItemJpaRepository items, OrderEventJpaRepository events,
+                  EntityManager entityManager) {
         this.orders = orders;
         this.items = items;
+        this.events = events;
         this.entityManager = entityManager;
     }
 
@@ -117,6 +128,40 @@ class JpaOrderStore implements OrderReader, OrderWriter {
     @Override
     public List<OrderItem> findItems(Long orderId) {
         return items.findByOrderIdOrderById(orderId).stream().map(OrderMapper::toDomain).toList();
+    }
+
+    @Override
+    public List<OrderItem> findItemsByOrderIds(Collection<Long> orderIds) {
+        if (orderIds.isEmpty()) {
+            return List.of();
+        }
+        return items.findByOrderIdInOrderByOrderIdAscIdAsc(orderIds).stream().map(OrderMapper::toDomain).toList();
+    }
+
+    /** 총계를 세지 않는다. findAll(Specification, Pageable) 은 쓰지 않는 COUNT 까지 돌린다. */
+    @Override
+    public List<Order> findByCustomer(Long customerId, OrderPosition after, int limit) {
+        return orders.findBy(OrderSpecifications.allOf(
+                                OrderSpecifications.customer(customerId),
+                                OrderSpecifications.after(after)),
+                        query -> query.sortBy(OrderSpecifications.NEWEST_FIRST).limit(limit).all())
+                .stream().map(OrderMapper::toDomain).toList();
+    }
+
+    @Override
+    public OffsetPage<Order> findForAdmin(AdminOrderFilter filter, int page, int size) {
+        Page<OrderJpaEntity> found = orders.findAll(OrderSpecifications.allOf(
+                        OrderSpecifications.status(filter.status()),
+                        OrderSpecifications.source(filter.source())),
+                PageRequest.of(page, size, OrderSpecifications.NEWEST_FIRST));
+        return OffsetPage.of(found.getContent().stream().map(OrderMapper::toDomain).toList(), page, size,
+                found.getTotalElements());
+    }
+
+    @Override
+    public List<OrderEvent> findEvents(Long orderId, long upToSequence) {
+        return events.findByOrderIdAndEventSequenceLessThanEqualOrderByEventSequence(orderId, upToSequence).stream()
+                .map(OrderMapper::toDomain).toList();
     }
 
     /**

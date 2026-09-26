@@ -7,6 +7,7 @@ import com.grandis.nova.order.order.domain.model.OrderLine;
 import com.grandis.nova.order.order.persistence.entity.OrderEventJpaEntity;
 import com.grandis.nova.order.order.persistence.entity.OrderItemJpaEntity;
 import com.grandis.nova.order.order.persistence.entity.OrderJpaEntity;
+import com.grandis.nova.order.order.vo.EventCause;
 import com.grandis.nova.order.order.vo.Money;
 import com.grandis.nova.order.order.vo.OrderToken;
 import com.grandis.nova.order.order.vo.Quantity;
@@ -49,5 +50,10 @@ public final class OrderMapper {
     public static OrderEventJpaEntity toEntity(OrderEvent event) {
         return new OrderEventJpaEntity(event.orderId(), event.eventSequence(), event.fromStatus(), event.toStatus(),
                 event.cause().actor(), event.cause().reason(), event.createdAt());
+    }
+
+    public static OrderEvent toDomain(OrderEventJpaEntity entity) {
+        return new OrderEvent(entity.getOrderId(), entity.getEventSequence(), entity.getFromStatus(),
+                entity.getToStatus(), new EventCause(entity.getActor(), entity.getReason()), entity.getCreatedAt());
     }
 }
