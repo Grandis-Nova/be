@@ -1,5 +1,7 @@
 package com.grandis.nova.catalog.image;
 
+import com.grandis.nova.catalog.option.ProductOptionAxis;
+import com.grandis.nova.catalog.option.ProductOptionValue;
 import com.grandis.nova.common.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -10,10 +12,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.util.Objects;
+
 /**
  * 상품 사진 한 장. 묶음(kind + bundleKey) 안에서 position 이 순서고 대표는 하나다.
  *
- * bundleKey 는 GALLERY 면 정규화한 색상값(색상 없는 상품은 ""), DETAIL 이면 상세 영역 이름이다.
+ * bundleKey 는 GALLERY 면 그 상품 color 축 값의 정규화값(색상 없는 상품은 ""), DETAIL 이면 상세 영역 이름이다.
+ * 엔티티는 상품의 축을 모르므로 GALLERY 팩토리가 color 축과 값을 직접 받아 소속을 검사한다 — 임의 문자열이 들어가면
+ * 색상별 대표 조회가 빗나가는 별도 묶음이 생긴다.
  * primary_marker 는 DB 가 계산하는 칼럼이라 매핑하지 않는다 — 매핑하면 앱이 쓸 수 있는 자리가 생긴다.
  * DB 가 지키는 것은 묶음당 대표 ≤ 1 뿐이다. "사진이 있으면 대표가 있다" 와 대표 삭제 뒤 첫 사진 자동 대표는 앱 책임이다.
  * GALLERY 묶음당 10장 상한은 앱 검사다(DETAIL 에는 상한 결정이 없다).
@@ -57,6 +63,12 @@ public class ProductImage extends BaseEntity {
         if (position < 0) {
             throw new IllegalArgumentException("position must be zero or positive: " + position);
         }
+        if (bundleKey == null) {
+            throw new IllegalArgumentException("bundleKey must not be null");
+        }
+        if (url == null || url.isBlank()) {
+            throw new IllegalArgumentException("url must not be blank");
+        }
         this.productId = productId;
         this.kind = kind;
         this.bundleKey = bundleKey;
@@ -65,9 +77,27 @@ public class ProductImage extends BaseEntity {
         this.primary = primary;
     }
 
-    public static ProductImage of(Long productId, ImageKind kind, String bundleKey, int position, String url,
-                                  boolean primary) {
-        return new ProductImage(productId, kind, bundleKey, position, url, primary);
+    /**
+     * 상품 사진. 묶음은 color 축의 값 하나다. colorValue 가 null 이면 색상 없는 상품의 기본 묶음('')이다.
+     * 축이 이 상품의 color 축이고 값이 그 축의 값인지 검사한다.
+     */
+    public static ProductImage gallery(Long productId, ProductOptionAxis colorAxis, ProductOptionValue colorValue,
+                                       int position, String url, boolean primary) {
+        String bundleKey = DEFAULT_BUNDLE;
+        if (colorValue != null) {
+            if (colorAxis == null || !ProductOptionAxis.COLOR.equals(colorAxis.getAxisKey())
+                    || !Objects.equals(colorAxis.getProductId(), productId)
+                    || !Objects.equals(colorValue.getAxisId(), colorAxis.getId())) {
+                throw new IllegalArgumentException("bundle must be a color value of product " + productId);
+            }
+            bundleKey = colorValue.getNormalizedValue();
+        }
+        return new ProductImage(productId, ImageKind.GALLERY, bundleKey, position, url, primary);
+    }
+
+    /** 상세 콘텐츠 이미지. 묶음은 영역 이름이고 값과 같은 규칙(NFC · 트림 · 공백 접기)으로 정규화한다. */
+    public static ProductImage detail(Long productId, String section, int position, String url, boolean primary) {
+        return new ProductImage(productId, ImageKind.DETAIL, ProductOptionValue.normalize(section), position, url, primary);
     }
 
     /**

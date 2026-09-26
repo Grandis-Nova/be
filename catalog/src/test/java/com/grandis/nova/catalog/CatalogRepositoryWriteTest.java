@@ -9,6 +9,8 @@ import com.grandis.nova.catalog.option.ProductOptionAxisRepository;
 import com.grandis.nova.catalog.option.ProductOptionSelectionRepository;
 import com.grandis.nova.catalog.option.ProductOptionValue;
 import com.grandis.nova.catalog.option.ProductOptionValueRepository;
+import com.grandis.nova.catalog.product.ProductOption;
+import com.grandis.nova.catalog.product.ProductOptionRepository;
 import com.grandis.nova.catalog.registration.ProductRegistration;
 import com.grandis.nova.catalog.registration.ProductRegistrationRepository;
 import com.grandis.nova.catalog.support.CatalogIntegrationTest;
@@ -24,6 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -45,6 +48,7 @@ class CatalogRepositoryWriteTest {
     @Autowired ProductOptionSelectionRepository selections;
     @Autowired ProductOptionAxisRepository axes;
     @Autowired ProductOptionValueRepository values;
+    @Autowired ProductOptionRepository options;
     @Autowired ProductImageRepository images;
 
     ShopFixtures fixtures;
@@ -97,6 +101,20 @@ class CatalogRepositoryWriteTest {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT value_id FROM product_option_selections WHERE option_id = ? AND axis_id = ?", Long.class,
                 optionId, color.getId())).isEqualTo(black.getId());
+    }
+
+    @Test
+    @DisplayName("축이 없는 상품의 옵션은 두 번째 저장을 DB 가 거절한다 — 조회 뒤 INSERT 경합에 기대지 않는다")
+    void secondStandaloneOptionIsRejected() {
+        Long productId = fixtures.product("IN_STOCK", "ACTIVE");
+        options.saveAndFlush(ProductOption.standalone(productId, "ONLY-1", "Nova 1", new BigDecimal("1000")));
+        assertThatThrownBy(() -> options.saveAndFlush(ProductOption.standalone(productId, "ONLY-2", "Nova 1", new BigDecimal("1000"))))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("uq_option_combination");
+        // catalog 밖에서 키 없이 넣은 행은 계속 여럿이어도 된다
+        fixtures.option(productId, "ACTIVE");
+        fixtures.option(productId, "ACTIVE");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM product_options WHERE product_id = ?", Long.class, productId))
+                .isEqualTo(3L);
     }
 
     @Test

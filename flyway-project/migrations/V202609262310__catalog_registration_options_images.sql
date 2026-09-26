@@ -37,7 +37,8 @@ ALTER TABLE shop.products
 -- 옵션 ------------------------------------------------------
 -- price_overridden = 1 이면 관리자가 직접 고친 가격이라 기본가 · 추가금 재계산에서 건너뛴다.
 -- combination_key 는 이 옵션이 고른 값 id 를 오름차순으로 '-' 로 이은 문자열("12-57"). **키를 채운 옵션끼리** 같은 조합을 UNIQUE 로
--- 막는다 — 선택은 집합이라 선택 표만으로는 UNIQUE 한 줄로 못 막는다. NULL(축이 없는 옵션 · 다른 모듈 픽스처)끼리는 중복 허용이라
+-- 막는다 — 선택은 집합이라 선택 표만으로는 UNIQUE 한 줄로 못 막는다. 축이 없는 상품의 옵션은 catalog 가 '' 로 넣어
+-- 같은 UNIQUE 가 상품당 하나를 지킨다. NULL 은 catalog 밖(다른 모듈 픽스처)에서 넣은 행뿐이고 NULL 끼리는 중복 허용이라
 -- 키 · filter_attributes · 선택 행이 서로 맞는지는 DB 가 아니라 한 팩토리(OptionCombination)가 셋을 함께 만들어 보장한다.
 ALTER TABLE shop.product_options
     ADD COLUMN price_overridden tinyint(1)   NOT NULL DEFAULT 0 AFTER price,
