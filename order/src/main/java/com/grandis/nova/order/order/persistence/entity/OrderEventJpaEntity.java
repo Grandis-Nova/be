@@ -59,6 +59,34 @@ public class OrderEventJpaEntity {
         this.createdAt = createdAt;
     }
 
+    public Long getOrderId() {
+        return orderId;
+    }
+
+    public Long getEventSequence() {
+        return eventSequence;
+    }
+
+    public OrderStatus getFromStatus() {
+        return fromStatus;
+    }
+
+    public OrderStatus getToStatus() {
+        return toStatus;
+    }
+
+    public EventActor getActor() {
+        return actor;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
     /** 복합 키 (order_id, event_sequence). */
     public record Key(Long orderId, Long eventSequence) implements Serializable {
     }

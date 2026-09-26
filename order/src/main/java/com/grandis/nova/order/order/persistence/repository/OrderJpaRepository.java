@@ -3,6 +3,7 @@ package com.grandis.nova.order.order.persistence.repository;
 import com.grandis.nova.order.order.domain.enums.OrderStatus;
 import com.grandis.nova.order.order.persistence.entity.OrderJpaEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,7 +17,8 @@ import java.util.Optional;
  * 어댑터가 그 주문만 떼어낸다(JpaOrderStore.changeStatus) — 전체를 비우면 같은 트랜잭션의 다른 엔티티(결제 · 재고)까지
  * 떼어져 그 뒤의 변경이 조용히 유실된다.
  */
-public interface OrderJpaRepository extends JpaRepository<OrderJpaEntity, Long> {
+public interface OrderJpaRepository extends JpaRepository<OrderJpaEntity, Long>,
+        JpaSpecificationExecutor<OrderJpaEntity> {
 
     Optional<OrderJpaEntity> findByOrderToken(String orderToken);
 
