@@ -12,6 +12,9 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 /**
  * 경로별 권한만 정한다. 토큰 검증 필터가 없어 보호 경로는 항상 401 이다.
  * common:security(#14) 머지 후 SecurityFilterChainSupport 로 교체한다.
+ *
+ * common:security 도입 시: 체인 본문을 SecurityFilterChainSupport.build(http, authorize -> ...) 로 바꾸고 아래 경로 규칙만
+ * 넘긴다. 401 · 403 응답은 그쪽 JsonAuthFailureHandlers 가 봉투로 낸다(HttpStatusEntryPoint 를 지운다).
  */
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfig {

@@ -4,9 +4,13 @@ dependencies {
     implementation project(':common:types')
     implementation project(':common:web')
     implementation project(':common:message')
+    // common:security 도입 시: project(':common:security') 를 더한다. 폐기 표식 조회로 common:redis 가 따라오므로
+    // application.yml 에 spring.data.redis 설정도 더한다.
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    // 다른 서비스 내부 API 는 HTTP Interface(@HttpExchange) + RestClient 로 부른다.
+    implementation 'org.springframework.boot:spring-boot-starter-restclient'
     runtimeOnly 'com.mysql:mysql-connector-j'
 
     // DB 동작은 MySQL 로만 검증한다(H2 없음).
