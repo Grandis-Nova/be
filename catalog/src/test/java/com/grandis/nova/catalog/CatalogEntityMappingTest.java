@@ -91,8 +91,12 @@ class CatalogEntityMappingTest {
         Long categoryId = fixtures.childCategory(fixtures.category(), "Apple");
         Product product = products.saveAndFlush(Product.register(categoryId, SaleMode.PREORDER, "Nova 1",
                 new BigDecimal("1200000"), "설명", "nova,phone", true, new BigDecimal("199000")));
-        ProductOption option = options.saveAndFlush(ProductOption.standalone(product.getId(), "ONLY", "Nova 1",
-                new BigDecimal("1450000")));
+        OptionCombination none = OptionCombination.none(product.getId(), " Nova  1 ");
+        assertThat(none.isStandalone()).isTrue();
+        assertThat(none.title()).isEqualTo("Nova 1");
+        assertThat(none.selections(1L)).isEmpty();
+        ProductOption option = options.saveAndFlush(ProductOption.of("ONLY", new BigDecimal("1450000"), false, none));
+        assertThat(option.getTitle()).isEqualTo("Nova 1");
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "SELECT sale_mode, status, visible, base_price, warranty_offered, warranty_surcharge, created_at, updated_at "
@@ -123,7 +127,7 @@ class CatalogEntityMappingTest {
         assertThat(options.findByProductIdOrderById(product.getId())).singleElement()
                 .satisfies(o -> {
                     assertThat(o.isPriceOverridden()).isFalse();
-                    assertThat(o.getCombinationKey()).isEqualTo(ProductOption.STANDALONE_KEY);
+                    assertThat(o.getCombinationKey()).isEqualTo(OptionCombination.STANDALONE_KEY);
                 });
     }
 

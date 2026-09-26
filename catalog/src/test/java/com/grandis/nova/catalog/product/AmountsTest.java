@@ -1,5 +1,6 @@
 package com.grandis.nova.catalog.product;
 
+import com.grandis.nova.catalog.option.OptionCombination;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,7 +42,7 @@ class AmountsTest {
                 false, BigDecimal.ZERO)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("basePrice");
         assertThatThrownBy(() -> Product.register(1L, SaleMode.IN_STOCK, "x", BigDecimal.ZERO, null, null,
                 true, new BigDecimal("0.5"))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("warrantySurcharge");
-        assertThatThrownBy(() -> ProductOption.standalone(1L, "sku", "x", new BigDecimal("10.5")))
+        assertThatThrownBy(() -> ProductOption.of("sku", new BigDecimal("10.5"), false, OptionCombination.none(1L, "x")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("price");
     }
 }

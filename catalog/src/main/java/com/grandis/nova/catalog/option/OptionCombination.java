@@ -19,8 +19,13 @@ import java.util.stream.Collectors;
  *
  * 검사: 축은 모두 같은 상품 · 축 중복 없음 · 값은 그 축의 값. 완전성(모든 축에 값이 있는가)은 상품의 축 목록을 아는
  * 서비스가 {@link #covers} 로 확인한다.
+ * 축이 없는 상품은 {@link #none} — 선택이 없으니 표시명은 받은 그대로고 키는 {@link #STANDALONE_KEY} 다. 옵션의 title · key · JSON 이
+ * 나오는 곳은 어느 경우든 여기 하나다.
  */
 public final class OptionCombination {
+
+    /** 축이 없는 상품의 옵션이 갖는 조합 키. 값 id 로 만든 키는 늘 숫자와 '-' 라 겹치지 않는다. */
+    public static final String STANDALONE_KEY = "";
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String TITLE_SEPARATOR = " / ";
@@ -35,12 +40,20 @@ public final class OptionCombination {
     }
 
     private final Long productId;
-    /** 축 position 순. */
+    /** 축 position 순. 축이 없는 상품이면 비어 있다. */
     private final List<Pick> picks;
+    /** 축이 없는 상품의 표시명. 선택이 있으면 null 이고 값에서 만든다. */
+    private final String standaloneTitle;
 
-    private OptionCombination(Long productId, List<Pick> picks) {
+    private OptionCombination(Long productId, List<Pick> picks, String standaloneTitle) {
         this.productId = productId;
         this.picks = List.copyOf(picks);
+        this.standaloneTitle = standaloneTitle;
+    }
+
+    /** 축이 없는 상품의 유일한 옵션. 상품당 하나는 DB UNIQUE(product_id, combination_key = '') 가 지킨다. */
+    public static OptionCombination none(Long productId, String title) {
+        return new OptionCombination(productId, List.of(), ProductOptionValue.normalize(title));
     }
 
     public static OptionCombination of(Long productId, List<Pick> picks) {
@@ -62,7 +75,11 @@ public final class OptionCombination {
         }
         List<Pick> ordered = new ArrayList<>(picks);
         ordered.sort(Comparator.comparingInt(pick -> pick.axis().getPosition()));
-        return new OptionCombination(productId, ordered);
+        return new OptionCombination(productId, ordered, null);
+    }
+
+    public boolean isStandalone() {
+        return picks.isEmpty();
     }
 
     public Long getProductId() {
@@ -81,12 +98,18 @@ public final class OptionCombination {
 
     /** 값 id 오름차순을 '-' 로 잇는다. 같은 값 집합이면 순서와 무관하게 같은 키다. DB 가 (product_id, key) UNIQUE 로 같은 조합을 막는다. */
     public String combinationKey() {
+        if (isStandalone()) {
+            return STANDALONE_KEY;
+        }
         return picks.stream().map(pick -> pick.value().getId()).sorted().map(String::valueOf)
                 .collect(Collectors.joining(KEY_SEPARATOR));
     }
 
-    /** 축 순서대로 값 표시명을 " / " 로 잇는다(블랙 / 256GB). */
+    /** 축 순서대로 값 표시명을 " / " 로 잇는다(블랙 / 256GB). 축이 없는 상품이면 받은 표시명이다. */
     public String title() {
+        if (isStandalone()) {
+            return standaloneTitle;
+        }
         return picks.stream().map(pick -> pick.value().getValue()).collect(Collectors.joining(TITLE_SEPARATOR));
     }
 
