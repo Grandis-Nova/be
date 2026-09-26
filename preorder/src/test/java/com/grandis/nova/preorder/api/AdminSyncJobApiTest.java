@@ -17,23 +17,35 @@ import com.grandis.nova.preorder.syncjob.ReprocessCandidateReader;
 import com.grandis.nova.preorder.syncjob.SyncJobAdminService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.Mockito.mockingDetails;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
@@ -60,8 +72,11 @@ class AdminSyncJobApiTest {
     @Autowired
     CancelStarter cancelStarter;
 
-    @Autowired
+    @MockitoSpyBean
     PreorderRepository preorders;
+
+    @Autowired
+    TransactionTemplate transactionTemplate;
 
     @Autowired
     ReprocessCandidateReader candidateReader;
@@ -191,6 +206,49 @@ class AdminSyncJobApiTest {
         assertThat(reprocessRequests(jobId)).isEmpty();
     }
 
+    /** 취소가 예약을 잠근 동안 재처리는 기다렸다가, 취소가 커밋된 뒤의 상태로 판정한다. */
+    @Test
+    void 취소_트랜잭션이_예약을_잠근_동안_재처리는_기다렸다가_409() throws Exception {
+        Long jobId = fixtures.deadLetter(preorderId);
+        CountDownLatch cancelLocked = new CountDownLatch(1);
+        CountDownLatch reprocessWaiting = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> canceling = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                cancelStarter.start(preorders.findById(preorderId).orElseThrow(), EventActor.USER, null,
+                        CancelReason.USER);
+                cancelLocked.countDown();
+                awaitQuietly(release);
+            }));
+            Future<MockHttpServletResponse> reprocessing;
+            try {
+                assertThat(cancelLocked.await(10, TimeUnit.SECONDS)).isTrue();
+                // 취소는 이미 예약을 잠갔으므로 이 뒤의 잠금 조회는 재처리의 것이다
+                Answer<?> delegate = mockingDetails(preorders).getMockCreationSettings().getDefaultAnswer();
+                willAnswer(invocation -> {
+                    reprocessWaiting.countDown();
+                    return delegate.answer(invocation);
+                }).given(preorders).findStatusForUpdate(any());
+                reprocessing = executor.submit(() -> admin(post("/api/v1/admin/sync-jobs/{id}/reprocess", jobId))
+                        .andReturn().getResponse());
+                assertThat(reprocessWaiting.await(10, TimeUnit.SECONDS)).isTrue();
+                await().alias("취소가 예약을 잠근 동안 재처리는 끝나지 않는다")
+                        .during(Duration.ofMillis(300)).atMost(Duration.ofSeconds(5))
+                        .until(() -> !reprocessing.isDone());
+            } finally {
+                release.countDown();
+            }
+
+            canceling.get(10, TimeUnit.SECONDS);
+            MockHttpServletResponse response = reprocessing.get(10, TimeUnit.SECONDS);
+            assertThat(response.getStatus()).isEqualTo(409);
+            assertThat(response.getContentAsString()).as("취소가 커밋한 작업 상태를 보고 판정했다")
+                    .contains("jobType=REGISTER, status=CANCELED");
+        }
+        assertThat(reprocessRequests(jobId)).isEmpty();
+    }
+
     @Test
     void 관리자가_아니면_403_토큰이_없으면_401() throws Exception {
         mockMvc.perform(get("/api/v1/admin/sync-jobs").with(user("1").roles("USER")))
@@ -281,6 +339,14 @@ class AdminSyncJobApiTest {
 
     private ResultActions admin(MockHttpServletRequestBuilder request) throws Exception {
         return mockMvc.perform(request.with(user("admin").roles("ADMIN")));
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private List<Map<String, Object>> reprocessRequests(Long syncJobId) {

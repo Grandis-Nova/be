@@ -43,4 +43,8 @@ public interface PreorderSyncJobRepository extends JpaRepository<PreorderSyncJob
     int cancelUnfinished(@Param("preorderId") Long preorderId, @Param("jobType") SyncJobType jobType,
                          @Param("finished") Collection<SyncJobStatus> finished,
                          @Param("canceled") SyncJobStatus canceled, @Param("now") Instant now);
+
+    /** 작업의 예약 id 만 읽는다. 예약을 먼저 잠그려고 작업 엔티티를 올리지 않는다. */
+    @Query("select j.preorderId from PreorderSyncJob j where j.id = :id")
+    Optional<Long> findPreorderId(@Param("id") Long id);
 }

@@ -14,7 +14,7 @@ import java.util.Optional;
 
 /**
  * DEAD_LETTER 인 REGISTER 작업의 재처리 요청을 남긴다. 작업을 되돌리는 것은 worker 다(조건부라 여러 번 와도 한 번).
- * 취소 중 · 취소된 예약은 되살리지 않는다. 확인 뒤 취소가 끼어들어도 worker 의 조건부 되돌림이 0행이 된다.
+ * 취소 중 · 취소된 예약은 되살리지 않는다. 취소 경로가 먼저 잠그는 예약 행을 잠가 판정과 기록을 취소와 직렬화한다.
  */
 @Component
 public class SyncJobReprocessor {
@@ -33,9 +33,11 @@ public class SyncJobReprocessor {
     /** @return 요청 시점의 작업 */
     @Transactional
     public PreorderSyncJob reprocess(Long syncJobId, String requestedBy) {
-        PreorderSyncJob job = syncJobs.findById(syncJobId)
+        Long preorderId = syncJobs.findPreorderId(syncJobId)
                 .orElseThrow(() -> new BusinessException(PreorderErrorCode.SYNC_JOB_NOT_FOUND));
-        PreorderStatus preorderStatus = preorders.findById(job.getPreorderId()).orElseThrow().getStatus();
+        PreorderStatus preorderStatus = preorders.findStatusForUpdate(preorderId).orElseThrow();
+        // 잠근 뒤 처음 읽어야 그 사이 취소가 바꾼 작업 상태를 본다
+        PreorderSyncJob job = syncJobs.findById(syncJobId).orElseThrow();
         Optional<String> blocker = blocker(job.getJobType(), job.getStatus(), preorderStatus);
         if (blocker.isPresent()) {
             throw new BusinessException(PreorderErrorCode.SYNC_JOB_NOT_REPROCESSABLE,
