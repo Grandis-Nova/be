@@ -12,6 +12,11 @@ import java.util.Optional;
 /**
  * BaseEntity 의 created_at · updated_at 을 채운다. 안 켜면 NOT NULL 위반으로만 드러난다.
  * 코드가 직접 찍는 시각과 어긋나지 않도록 Auditing 도 같은 {@link Clock} 을 쓴다.
+ *
+ * common:security 도입 시: common:security 의 JwtConfiguration 이 조건 없이 같은 이름의 clock() 빈을 정의한다. 그대로 두면
+ * 빈 이름이 겹쳐 기동이 실패한다. 이 시계(마이크로초로 내린 {@link #atStorageResolution})는 유지해야 한다 —
+ * common 의 시계를 이것으로 바꾸거나, 여기 빈 이름을 바꾸고 @Primary 를 단다. 어느 쪽이든
+ * OrderApplicationTest.applicationClockIsAtStorageResolution 이 확인한다.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableJpaAuditing(dateTimeProviderRef = "auditingDateTimeProvider")

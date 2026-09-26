@@ -21,6 +21,13 @@ spring:
         jdbc:
           time_zone: UTC
     open-in-view: false
+  http:
+    serviceclient:
+      # 주문 생성 때 예약 조회(GET /internal/preorders/{token}). 답이 없으면 주문을 만들지 않고 503 이다.
+      preorder:
+        base-url: http://localhost:8083
+        connect-timeout: 300ms
+        read-timeout: 1s
 
 server:
   port: 8084
