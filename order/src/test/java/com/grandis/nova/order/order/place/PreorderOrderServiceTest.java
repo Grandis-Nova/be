@@ -144,6 +144,20 @@ class PreorderOrderServiceTest {
         assertThat(service.place(CUSTOMER_ID, PREORDER_UUID, OrderFixtures.ADDRESS).created()).isTrue();
     }
 
+    // 단가는 원 단위 정수다. preorder 가 소수 단가를 보내면 계약 위반이라 주문을 만들지 않는다(Money 가 거부, 공통 처리기에서 500).
+    @Test
+    void fractionalUnitPriceFromPreorderIsRejectedBeforeTransaction() {
+        given(preorderReader.find(PREORDER_UUID)).willReturn(Optional.of(new PreorderSnapshot(PREORDER_ID,
+                PREORDER_UUID, CUSTOMER_ID, 3L, 30L, "Nova 1", "블랙 / 256GB", new BigDecimal("1250000.5"), "PAYABLE",
+                NOW.minus(Duration.ofHours(1)))));
+
+        assertThatThrownBy(() -> service.place(CUSTOMER_ID, PREORDER_UUID, OrderFixtures.ADDRESS))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("원 단위");
+        verify(ledger, never()).place(any(), any());
+        verify(transactionManager, times(1)).getTransaction(any());   // 기존 주문 확인(읽기)만 열렸다
+    }
+
     private void payableSince(Instant payableFrom) {
         given(preorderReader.find(PREORDER_UUID)).willReturn(Optional.of(new PreorderSnapshot(PREORDER_ID, PREORDER_UUID,
                 CUSTOMER_ID, 3L, 30L, "Nova 1", "블랙 / 256GB", new BigDecimal("1250000"), "PAYABLE", payableFrom)));
