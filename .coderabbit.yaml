@@ -26,7 +26,7 @@ tone_instructions: |
 
 reviews:
   profile: "assertive"          # 정확성 위주. 지적이 많다고 느끼면 chill 로 낮춘다
-  request_changes_workflow: false
+  request_changes_workflow: true # 지적이 있으면 변경 요청, 모두 해결되면 승인 — 머지 규칙의 승인 1건으로 쓴다
   high_level_summary: true
   review_status: true
   collapse_walkthrough: true
