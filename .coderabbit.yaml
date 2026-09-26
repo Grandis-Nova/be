@@ -8,7 +8,8 @@
 #
 # 소유 경계(README 기준)
 #   member    customers
-#   catalog   categories · products · product_options
+#   catalog   categories · products · product_options · product_option_axes · product_option_values
+#             product_option_selections · product_images · product_registrations
 #   preorder  preorders · preorder_events · preorder_campaigns · shipment_batches
 #   order     orders · order_items · order_events · cart_items · payments · payment_transactions
 #             option_inventories(재고 칼럼 stock_total · stock_reserved · stock_sold)
@@ -227,6 +228,11 @@ reviews:
         - 상품 · 옵션의 물리 삭제는 지적한다. 신청 이력이 있으므로 상태로 숨긴다.
         - 모집 오픈 이후 모집 일정 · 배송 기준을 바꾸는 경로는 지적한다.
         - 가격 · 이름 변경이 과거 예약에 소급되는 구조라면 지적한다. 예약은 접수 시점 값을 복사해 쓴다.
+        - 카테고리 parent_id 를 쓰는 경로가 순환(자기 자신 포함) · 3단계를 검사하지 않으면 지적한다. DB 는 못 막는다.
+        - products.visible 을 true 로 바꾸는 경로가 product_registrations.completed_at 을 확인하지 않으면 지적한다.
+        - product_images 의 GALLERY bundle_key 가 그 상품 color 축의 정규화값(또는 '')인지 검사하지 않으면 지적한다.
+        - product_options 의 combination_key · filter_attributes · title 과 product_option_selections 를 OptionCombination 밖에서 따로 만들면 지적한다.
+        - product_images.position 을 한 UPDATE 로 교환하거나, 이동 UPDATE 에 방향에 맞는 ORDER BY 가 없으면 지적한다(UNIQUE 는 행마다 검사된다).
 
     # ─────────────────────────────────────────────────────────────
     # 6. member — 로그인 · 토큰 · 회원
